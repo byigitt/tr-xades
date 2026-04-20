@@ -29,12 +29,12 @@ export const SIGNATURE = {
 
 // Canonicalization algorithms.
 // Default for UBL-TR e-Fatura is exc-c14n (exclusive, no comments).
-// MA3 ships with classic c14n as default — override to exc-c14n for TR compliance.
+// MA3 ships with classic c14n10 as default — override to exc-c14n for TR compliance.
+// C14N 1.1 deliberately unsupported: xmldsigjs doesn't implement it and TR
+// profile doesn't use it. Reopen when a real need appears.
 export const C14N = {
 	"c14n10": "http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
 	"c14n10-with-comments": "http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments",
-	"c14n11": "http://www.w3.org/2006/12/xml-c14n11",
-	"c14n11-with-comments": "http://www.w3.org/2006/12/xml-c14n11#WithComments",
 	"exc-c14n": "http://www.w3.org/2001/10/xml-exc-c14n#",
 	"exc-c14n-with-comments": "http://www.w3.org/2001/10/xml-exc-c14n#WithComments",
 } as const;
