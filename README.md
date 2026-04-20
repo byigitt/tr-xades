@@ -4,12 +4,13 @@ Türkiye profili **XAdES** elektronik imza kütüphanesi. Node 20+, TypeScript.
 Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağımlılıklar.
 
 ```
-Kapsam:   XAdES-BES / -EPES / -T / -LT / -LTA
-          Enveloping + Enveloped (UBL-TR e-Fatura) + Detached
-Signer:   PFX (PKCS#12) veya pkcs8 + X.509 DER
-Algo:     RSA-PKCS1-v1_5 & ECDSA × SHA-256/384/512, EXC-C14N / C14N 1.0
-Policy:   TR P2/P3/P4 v1 (Elektronik İmza Kullanım Profilleri Rehberi)
-TSA:      RFC 3161 generic + Kamu SM varsayılan
+Kapsam:    XAdES-BES / -EPES / -T / -LT / -LTA
+           Enveloping + Enveloped (UBL-TR e-Fatura) + Detached + Counter-signature + Multi-sig
+Signer:    PFX (PKCS#12) veya pkcs8 + X.509 DER
+Algo:      RSA-PKCS1-v1_5 & ECDSA × SHA-256/384/512, EXC-C14N / C14N 1.0
+Policy:    TR P2/P3/P4 v1 (Elektronik İmza Kullanım Profilleri Rehberi)
+TSA:       RFC 3161 generic + Kamu SM varsayılan
+Interop:   MA3 2.3.11.8 fixtures (verify) + MA3 verifier accepts ubl-ma3-compat
 ```
 
 ## Kurulum
@@ -67,7 +68,8 @@ const lta = await upgrade({ xml: lt,     to: "LTA" });
 
 | field | type | default | not |
 |---|---|---|---|
-| `input.xml + placement` | `{xml, "ubl-extension"\|"root-append"}` | | Enveloped (UBL-TR) |
+| `input.xml + placement` | `{xml, "ubl-extension" \| "root-append"}` | | W3C enveloped (URI="" + enveloped-signature transform) |
+| `input.xml + placement` | `{xml, "ubl-ma3-compat"}` | | UBL envelope + enveloping-embedded (MA3 interop) |
 | `input.bytes + mimeType` | `{bytes, mimeType}` | | Enveloping (data ds:Object içinde) |
 | `input.uri + data + mimeType` | `{uri, data, mimeType}` | | Detached (external ref) |
 | `signer.pfx + password` | `{pfx: Uint8Array, password}` | | PKCS#12 |
@@ -81,19 +83,30 @@ const lta = await upgrade({ xml: lt,     to: "LTA" });
 | `commitmentType` | `"proof-of-origin"\|…` | | ETSI OID'e map |
 | `signerRole` | `{ claimed: string[] }` | | |
 
-### `verify(xml): Promise<VerifyResult>` — `src/verify.ts`
+### `verify(xml, opts?): Promise<VerifyResult>` — `src/verify.ts`
 
 ```ts
 type VerifyResult =
   | { valid: true; level: "XMLDSig"|"BES"|"EPES"|"T"|"LT"|"LTA";
       signer: { subject, issuer, serialHex, notBefore, notAfter };
-      signedAt?: Date }
+      signedAt?: Date;
+      counterSignatures?: SignerInfo[];    // XAdES CounterSignature varsa
+      allSignatures?: PerSignatureResult[]; // 2+ top-level (paralel) imza varsa
+    }
   | { valid: false; reason: string; detail?: unknown };
+
+type VerifyOptions = {
+  // Detached imza veya external URI referanslar için.
+  resolver?: (uri: string) => Uint8Array | Node | null | Promise<...>;
+};
 ```
 
 XMLDSig §3.2 core validation: tüm Reference digest'leri yeniden hesaplanır +
 SignedInfo c14n + SignatureValue kriptografik doğrulanır. Seviye tespiti: yapıya
 göre (QP, SigPolicy, SignatureTimeStamp, Complete*Refs/CertValues, ArchiveTS).
+
+Counter-sig'ler recursive doğrulanır — geçerli olanların signer'ı `counterSignatures`'ta.
+Paralel imzalar (2+ top-level) `allSignatures`'ta her biri ayrı rapor.
 
 **Scope notu:** cert chain validation default KAPALI. İsterseniz
 `validateChain()` ile kendi trust bundle'ınızda doğrulayın.
@@ -110,6 +123,27 @@ Discriminated union, `to`'ya göre:
 
 Kaskad yok: BES→T→LT→LTA sırasını kullanıcı kurar.
 
+### `counterSign(opts): Promise<string>` — `src/counter-sign.ts`
+
+```ts
+await counterSign({
+  xml: signedXml,
+  signer: { pfx, password },
+  parentSignatureId: "Signature-Id-...",  // opsiyonel; yoksa ilk ds:Signature
+  // aynı sign() opsiyonları: signingTime, productionPlace, commitmentType, ...
+});
+```
+
+Mevcut bir `ds:Signature`'a karşı imza atar. Yeni imza parent'ın
+`ds:SignatureValue`'suna referans verir (Type=`http://uri.etsi.org/01903#CountersignedSignature`)
+ve `xades:UnsignedSignatureProperties/xades:CounterSignature` altına yerleştirilir.
+
+### Paralel (multi) imza
+
+Ayrı fonksiyon yok — `sign()` tekrar çağırın (ubl-ma3-compat modunda her sig kendi
+`ds:Object`'ini kullanır, bağımsızdır). `verify()` primary olarak ilk sig'i raporlar,
+2+ varsa `allSignatures[]` ile hepsini verir.
+
 ### Yardımcı modüller
 
 | modül | içerik |
@@ -123,9 +157,9 @@ Kaskad yok: BES→T→LT→LTA sırasını kullanıcı kurar.
 | `src/crl.ts` | `fetchCrl`, `parseCrl`, `isRevoked`, `crlUrlsFromCert` |
 | `src/chain.ts` | `validateChain`, `loadKamuSmRoots` (runtime fetch) |
 
-## Kapsam dışı (v0.1)
+## Kapsam dışı
 
-- **CAdES / PAdES / ASiC** — yalnız XAdES.
+- **CAdES / PAdES / ASiC** — yalnız XAdES (v0.3+ adayı).
 - **PKCS#11 / akıllı kart** — yumuşak anahtar (PFX/pkcs8). Ayrı paket planlı (`tr-xades-pkcs11`).
 - **Mobil İmza** (Turkcell / Vodafone / TT-MSS) — operatör entegrasyonu v1.x.
 - **Browser** — Node-only. Tarayıcıda PKCS#11 + fs olmuyor.
@@ -141,9 +175,20 @@ Kaskad yok: BES→T→LT→LTA sırasını kullanıcı kurar.
 - **Cert chain ve revocation kontrolü ayrıdır.** Kendi trust bundle'ınızda `validateChain()` ile yapın.
 - Bir XAdES imzasının "hukuki geçerliliği", kullanılan sertifikanın niteliği (nitelikli elektronik sertifika, NES) ve imza politikasına uygunlukla ilgilidir — kütüphanenin yapısal geçerlik kontrolü ile karıştırılmamalıdır.
 
-## Interop
+## Interop (MA3 2.3.11.8)
 
-`reference/out/*.xml`'deki MA3 2.3.11.8 fixture'ları `verify()` ile geçiyor. Ters yönde (bizim ürettiğimiz imzaları MA3 ile doğrulama) planda; `reference/driver/Ma3Verify.java` ile.
+| Senaryo | tr-xades verify | MA3 verifier |
+|---|---|---|
+| MA3 enveloping fixture | ✅ valid | — |
+| MA3 enveloped-embedded fixture | ✅ valid | — |
+| MA3 detached fixture (`sample-invoice.xml` URI) | ✅ valid (w/ `resolver`) | — |
+| tr-xades enveloping BES | — | ✅ temel doğru — cert chain ayrı |
+| tr-xades **`placement: "ubl-ma3-compat"`** | — | ✅ **temel doğru** — cert chain ayrı |
+| tr-xades W3C enveloped (`ubl-extension`) | — | ❌ MA3 farklı konvansiyon (yalnız `ubl-ma3-compat` kullanın) |
+
+MA3 verifier self-signed test cert'imizi reddediyor (Kamu SM bundle'ında yok) —
+gerçek mali mühür cert ile kalkacak beklenen sorun. Detaylar için
+`reference/driver/Ma3Verify.java` ve `reference/verify.sh`.
 
 ## Geliştirme
 
