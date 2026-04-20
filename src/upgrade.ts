@@ -172,7 +172,7 @@ function childrenByTag(parent: any, ns: string, local: string): any[] {
 // ---- shared helpers ----
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ensureUnsignedSignatureProperties(doc: any, qp: any): any {
+export function ensureUnsignedSignatureProperties(doc: any, qp: any): any {
 	let uprops = firstChild(qp, NS.xades, "UnsignedProperties");
 	if (!uprops) {
 		uprops = doc.createElementNS(NS.xades, "xades:UnsignedProperties");

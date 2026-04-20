@@ -45,7 +45,11 @@ export type SignOptions = {
 };
 
 export async function sign(opts: SignOptions): Promise<string> {
-	const resolved = await resolveSigner(opts);
+	const resolved = await resolveSigner({
+		signer: opts.signer,
+		digestAlgorithm: opts.digestAlgorithm,
+		signatureAlgorithm: opts.signatureAlgorithm,
+	});
 	const digestAlg = opts.digestAlgorithm ?? "SHA-256";
 	const c14nAlg = opts.c14nAlgorithm ?? "exc-c14n";
 
@@ -241,7 +245,7 @@ function parseAndStageEnveloped(
 	return { doc: xmlDoc, signatureEl, root };
 }
 
-function buildKeyInfo(doc: Document, certDer: Uint8Array): Element {
+export function buildKeyInfo(doc: Document, certDer: Uint8Array): Element {
 	const ki = doc.createElementNS(NS.ds, "ds:KeyInfo");
 	const xd = doc.createElementNS(NS.ds, "ds:X509Data");
 	const xc = doc.createElementNS(NS.ds, "ds:X509Certificate");
@@ -251,28 +255,36 @@ function buildKeyInfo(doc: Document, certDer: Uint8Array): Element {
 	return ki;
 }
 
-async function resolveSigner(opts: SignOptions): Promise<{
+export type SignerInput =
+	| { pfx: Uint8Array; password: string }
+	| { pkcs8: Uint8Array; certificate: Uint8Array };
+
+export async function resolveSigner(input: {
+	signer: SignerInput;
+	digestAlgorithm?: HashAlg;
+	signatureAlgorithm?: SignatureAlg;
+}): Promise<{
 	certificate: Uint8Array;
 	privateKey: CryptoKey;
 	sigAlg: SignatureAlg;
 }> {
-	const hash = (opts.digestAlgorithm ?? "SHA-256").replace("-", ""); // "SHA256"
-	if ("pfx" in opts.signer) {
-		const b = await loadPfx(opts.signer.pfx, opts.signer.password);
+	const hash = (input.digestAlgorithm ?? "SHA-256").replace("-", ""); // "SHA256"
+	if ("pfx" in input.signer) {
+		const b = await loadPfx(input.signer.pfx, input.signer.password);
 		const prefix = b.privateKey.algorithm === "EC" ? "ECDSA" : "RSA";
-		const sigAlg = (opts.signatureAlgorithm ?? `${prefix}-${hash}`) as SignatureAlg;
+		const sigAlg = (input.signatureAlgorithm ?? `${prefix}-${hash}`) as SignatureAlg;
 		return {
 			certificate: b.certificate,
 			privateKey: await importPrivateKey(b.privateKey.pkcs8, sigAlg),
 			sigAlg,
 		};
 	}
-	if (!opts.signatureAlgorithm) {
+	if (!input.signatureAlgorithm) {
 		throw new Error("signatureAlgorithm doğrudan pkcs8 verildiğinde zorunludur");
 	}
 	return {
-		certificate: opts.signer.certificate,
-		privateKey: await importPrivateKey(opts.signer.pkcs8, opts.signatureAlgorithm),
-		sigAlg: opts.signatureAlgorithm,
+		certificate: input.signer.certificate,
+		privateKey: await importPrivateKey(input.signer.pkcs8, input.signatureAlgorithm),
+		sigAlg: input.signatureAlgorithm,
 	};
 }
