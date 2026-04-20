@@ -33,8 +33,15 @@ import org.w3c.dom.Node;
 
 import tr.gov.tubitak.uekae.esya.api.asn.profile.TurkishESigProfile;
 import tr.gov.tubitak.uekae.esya.api.asn.x509.ECertificate;
+import tr.gov.tubitak.uekae.esya.api.cmssignature.SignableByteArray;
+import tr.gov.tubitak.uekae.esya.api.cmssignature.attribute.AllEParameters;
+import tr.gov.tubitak.uekae.esya.api.cmssignature.signature.BaseSignedData;
+import tr.gov.tubitak.uekae.esya.api.cmssignature.signature.ESignatureType;
 import tr.gov.tubitak.uekae.esya.api.common.OID;
 import tr.gov.tubitak.uekae.esya.api.common.util.LicenseUtil;
+import tr.gov.tubitak.uekae.esya.api.crypto.alg.SignatureAlg;
+import tr.gov.tubitak.uekae.esya.api.signature.config.Config;
+import tr.gov.tubitak.uekae.esya.api.signature.util.PfxSigner;
 import tr.gov.tubitak.uekae.esya.api.xmlsignature.Context;
 import tr.gov.tubitak.uekae.esya.api.xmlsignature.SignatureType;
 import tr.gov.tubitak.uekae.esya.api.xmlsignature.XMLSignature;
@@ -103,10 +110,40 @@ public class Ma3Ref {
       meta.put("detached_bes_error", e.getMessage());
     }
 
-    // 4) Write meta.json.
+    // 4) CAdES-BES fixture (attached). ma3api-cmssignature BaseSignedData + PfxSigner.
+    try {
+      byte[] cadesBes = signCadesBes("Hello CAdES from MA3 2.3.11.8");
+      Files.write(Path.of(OUT, "cades-bes.p7s"), cadesBes);
+      meta.put("cades_bes_bytes", cadesBes.length);
+    } catch (Exception e) {
+      meta.put("cades_bes_error", e.getMessage());
+    }
+
+    // 5) Write meta.json.
     Files.writeString(Path.of(OUT, "meta.json"), toJson(meta));
     System.out.println("done — outputs in " + OUT);
     System.out.println(toJson(meta));
+  }
+
+  // CAdES-BES attached: data ömmits a CMS SignedData, content embedded.
+  static byte[] signCadesBes(String text) throws Exception {
+    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, PFX, PFX_PASS.toCharArray());
+    BaseSignedData bs = new BaseSignedData();
+    bs.addContent(new SignableByteArray(text.getBytes("UTF-8")), true);
+    // MA3 addSigner default path validation yapar; CertValidationPolicies
+    // config’den gelir + P_VALIDATION_WITHOUT_FINDERS ile zincir araması atlanır.
+    java.util.Map<String, Object> params = new java.util.HashMap<>();
+    Config cfg = new Config();
+    params.put(AllEParameters.P_CERT_VALIDATION_POLICIES, cfg.getCertificateValidationPolicies());
+    params.put(AllEParameters.P_VALIDATION_WITHOUT_FINDERS, Boolean.TRUE);
+    // Self-signed test cert’i kendi trust listesine koy ki path validation 'trusted root'
+    // bulsun (Kamu SM bundle'ında değil, elde bünyede).
+    java.util.List<ECertificate> trusted = new java.util.ArrayList<>();
+    trusted.add(signer.getSignersCertificate());
+    params.put(AllEParameters.P_TRUSTED_CERTIFICATES, trusted);
+    bs.addSigner(ESignatureType.TYPE_BES, signer.getSignersCertificate(), signer,
+                 new java.util.ArrayList<>(), params);
+    return bs.getEncoded();
   }
 
   // XAdES enveloped: signature lives inside the document it signs.
