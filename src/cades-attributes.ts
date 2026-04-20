@@ -4,7 +4,7 @@
 
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
-import { CADES_ATTR, CMS_COMMITMENT_OID, CONTENT_TYPE, SIGNED_ATTR } from "./cades-constants.ts";
+import { CADES_ATTR, CMS_COMMITMENT_OID, CONTENT_TYPE, HASH_OID, SIGNED_ATTR } from "./cades-constants.ts";
 import { digest, type HashAlg } from "./crypto.ts";
 import type { Policy } from "./policy.ts";
 import type { CommitmentType } from "./signed-properties.ts";
@@ -46,7 +46,7 @@ export async function buildSigningCertificateV2Attr(
 	const essParts: asn1js.BaseBlock[] = [];
 	if (hashAlg !== "SHA-256") {
 		// DEFAULT sha256 atlamalı; diğer hash için AlgorithmIdentifier yaz.
-		const alg = new pkijs.AlgorithmIdentifier({ algorithmId: hashOid(hashAlg) });
+		const alg = new pkijs.AlgorithmIdentifier({ algorithmId: HASH_OID[hashAlg] });
 		essParts.push(alg.toSchema());
 	}
 	essParts.push(new asn1js.OctetString({ valueHex: toAB(hash) }));
@@ -67,7 +67,7 @@ export async function buildSigningCertificateV2Attr(
 // ETSI TS 101 733 §5.8.1 SignaturePolicyIdentifier:
 //   SEQUENCE { sigPolicyId OID, sigPolicyHash OtherHashAlgAndValue, qualifiers OPT }
 export function buildSignaturePolicyIdentifierAttr(policy: Policy): pkijs.Attribute {
-	const alg = new pkijs.AlgorithmIdentifier({ algorithmId: hashOid(policy.digestAlgorithm) });
+	const alg = new pkijs.AlgorithmIdentifier({ algorithmId: HASH_OID[policy.digestAlgorithm] });
 	const hashPart = new asn1js.Sequence({
 		value: [alg.toSchema(), new asn1js.OctetString({ valueHex: toAB(policy.digest) })],
 	});
@@ -96,12 +96,6 @@ export function buildSignatureTimeStampAttr(tstTokenDer: Uint8Array): pkijs.Attr
 }
 
 // --- helpers ---
-
-function hashOid(alg: HashAlg): string {
-	return alg === "SHA-256" ? "2.16.840.1.101.3.4.2.1"
-		: alg === "SHA-384" ? "2.16.840.1.101.3.4.2.2"
-		: "2.16.840.1.101.3.4.2.3";
-}
 
 function toAB(u8: Uint8Array): ArrayBuffer {
 	const ab = new ArrayBuffer(u8.byteLength);

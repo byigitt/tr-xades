@@ -45,6 +45,13 @@ export const CADES_ATTR = {
 	archiveTimeStampV3: "0.4.0.1733.2.4",                    // CAdES-A v3 (EN 319 122)
 } as const;
 
+// NIST hash algorithm OIDs (CMS AlgorithmIdentifier'larda kullanılır).
+export const HASH_OID = {
+	"SHA-256": "2.16.840.1.101.3.4.2.1",
+	"SHA-384": "2.16.840.1.101.3.4.2.2",
+	"SHA-512": "2.16.840.1.101.3.4.2.3",
+} as const;
+
 // --- ETSI CommitmentType OIDs (RFC 5126 §5.11.1) ---
 // XAdES karşılıklarıyla aynı OID arc; tek tabloda tutma duplicate olurdu,
 // ama CAdES tarafında ayrı import akışı için burada da referans:

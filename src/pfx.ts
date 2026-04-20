@@ -3,17 +3,16 @@
 // CryptoKey is deferred — crypto.ts binds the hash at WebCrypto importKey time.
 
 import * as asn1js from "asn1js";
-import { Crypto } from "@peculiar/webcrypto";
 import * as pkijs from "pkijs";
 
-// Register a crypto engine so pkijs can run password MACs / bag decryption.
-const webcrypto = new Crypto();
+// pkijs engine'ini Node 22 global WebCrypto ile kayıt et — crypto.ts ile aynı
+// subtle referansını kullanıyoruz ki CryptoKey'ler iki taraf arasında uyumsuz olmasın.
 pkijs.setEngine(
 	"webcrypto",
 	new pkijs.CryptoEngine({
 		name: "webcrypto",
-		crypto: webcrypto,
-		subtle: webcrypto.subtle,
+		crypto: globalThis.crypto,
+		subtle: globalThis.crypto.subtle,
 	}) as unknown as pkijs.ICryptoEngine,
 );
 
