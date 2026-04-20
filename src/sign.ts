@@ -24,8 +24,9 @@ const XMLNS_NS = "http://www.w3.org/2000/xmlns/";
 
 export type SignOptions = {
 	input:
-		| { xml: string; placement: "ubl-extension" | "root-append" }
-		| { bytes: Uint8Array; mimeType: string };
+		| { xml: string; placement: "ubl-extension" | "root-append" } // enveloped
+		| { bytes: Uint8Array; mimeType: string } // enveloping (data embedded)
+		| { uri: string; data: Uint8Array; mimeType: string }; // detached (external URI)
 	signer:
 		| { pfx: Uint8Array; password: string }
 		| { pkcs8: Uint8Array; certificate: Uint8Array };
@@ -122,6 +123,24 @@ type Stage = {
 };
 
 function stageDocument(opts: SignOptions, signatureId: string): Stage {
+	if ("uri" in opts.input) {
+		// Detached: Signature root, data lives externally (bytes carried for digest).
+		const doc = new DOMImplementation().createDocument(NS.ds, "ds:Signature", null) as unknown as Document;
+		const signatureEl = doc.documentElement!;
+		signatureEl.setAttribute("Id", signatureId);
+		signatureEl.setAttributeNS(XMLNS_NS, "xmlns:xades", NS.xades);
+		return {
+			doc,
+			signatureEl,
+			dataRef: {
+				uri: opts.input.uri,
+				mimeType: opts.input.mimeType,
+				transforms: [],
+				data: opts.input.data,
+			},
+		};
+	}
+
 	if ("bytes" in opts.input) {
 		// Enveloping: Signature root, data in a ds:Object (base64).
 		const doc = new DOMImplementation().createDocument(NS.ds, "ds:Signature", null) as unknown as Document;
