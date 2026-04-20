@@ -2,6 +2,25 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [Unreleased] — v0.2 gap closure
+
+### Eklendi
+
+- **`placement: "ubl-ma3-compat"`** — MA3 (TÜBİTAK BİLGEM) doğrulayıcısı ile
+  UBL-TR enveloped interop. Input XML base64 olarak `ds:Object`'te, `ds:Reference`
+  `URI="#<objectId>"` (enveloped-signature transform yok). MA3'ün kendi `enveloped`
+  çıktısıyla yapısal olarak birebir. `reference/verify.sh` ile doğrulandı: MA3'ün
+  'Temel doğrulama başarılı', sadece cert chain trust (self-signed test cert Kamu SM
+  bundle'ında yok) reddediliyor.
+- XMLDSig şema sırası düzeltmesi: `ds:Signature` child'ları artık `SignedInfo`,
+  `SignatureValue`, `KeyInfo`, `Object*` sırasında (öncesinde data `Object`
+  `KeyInfo`'dan önce geliyordu).
+
+### Kaldırılan bilinen sınırlama
+
+- MA3 interop'ta UBL enveloped sorunu çözüldü (v0.1 'Temel doğrulama başarısız'
+  hatası). `ubl-ma3-compat` modu ile MA3 temel doğrulaması geçiyor.
+
 ## [0.1.0] — Unreleased (v0.1.0 taslak)
 
 İlk sürüm. Türkiye profili XAdES kütüphanesi — clean-room, ETSI +
