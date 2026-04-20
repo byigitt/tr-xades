@@ -1,7 +1,8 @@
 {
   "name": "tr-xades",
-  "version": "0.3.0",
-  "description": "Türkiye profili XAdES (BES/T/LT/LTA) imza kütüphanesi — clean-room, ETSI TS 101 903 / EN 319 132 uyumlu",
+  "version": "0.4.0",
+  "description": "Türkiye profili XAdES + CAdES + ASiC imza kütüphanesi — clean-room, ETSI TS 101 903 / TS 101 733 / EN 319 162 uyumlu",
+  "keywords": ["xades", "cades", "asic", "e-imza", "e-fatura", "ubl-tr", "tubitak", "ma3", "kamusm", "tsp", "ocsp", "crl"],
   "type": "module",
   "exports": {
     "./sign": {
@@ -31,6 +32,10 @@
     "./cades-upgrade": {
       "types": "./dist/cades-upgrade.d.ts",
       "import": "./dist/cades-upgrade.js"
+    },
+    "./asic": {
+      "types": "./dist/asic.d.ts",
+      "import": "./dist/asic.js"
     },
     "./pfx": {
       "types": "./dist/pfx.d.ts",
