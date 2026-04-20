@@ -1,0 +1,38 @@
+{
+  "name": "tr-xades",
+  "version": "0.0.1",
+  "description": "Türkiye profili XAdES (BES/T/LT/LTA) imza kütüphanesi — clean-room, ETSI TS 101 903 / EN 319 132 uyumlu",
+  "type": "module",
+  "exports": {
+    "types": "./dist/sign.d.ts",
+    "import": "./dist/sign.js"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "example:bes": "node --import tsx examples/sign-bes.ts"
+  },
+  "keywords": ["xades", "esignature", "eimza", "tubitak", "kamusm", "etsi", "e-fatura", "ubl-tr"],
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@peculiar/webcrypto": "^1.5.0",
+    "@peculiar/x509": "^2.0.0",
+    "@xmldom/xmldom": "^0.9.10",
+    "asn1js": "^3.0.9",
+    "pkijs": "^3.4.0",
+    "pvutils": "^1.1.5",
+    "xadesjs": "^2.6.7",
+    "xmldsigjs": "^2.8.7",
+    "xpath": "^0.0.34"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@typescript/native-preview": "latest",
+    "oxlint": "^0.13.0",
+    "tsx": "^4.19.2"
+  }
+}
