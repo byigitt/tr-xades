@@ -44,9 +44,33 @@ test("multi-sig — ubl-ma3-compat'ın tekrar çağrılması paralel sig ekler",
 		// Her sig için: 1 QP Object + 1 data Object = 2 Object. Toplam 4 bekleniyor (en az).
 		assert.ok(objCount >= 4, `Object sayısı beklenenden az: ${objCount}`);
 
-		// verify() ilk sig'i doğrular (4.2'de allSignatures ile genişletilecek)
+		// verify() primary olarak ilk sig'i raporlar; allSignatures her iki sig'i listeler.
 		const r = await verify(second);
 		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
 		if (!r.valid) return;
 		assert.equal(r.level, "BES");
+		assert.ok(r.allSignatures, "allSignatures alanı dolu olmalı");
+		assert.equal(r.allSignatures!.length, 2, "iki top-level sig beklendi");
+		for (const s of r.allSignatures!) {
+			assert.equal(s.valid, true, s.valid ? "" : `sig ${s.signatureId} invalid: ${s.reason}`);
+		}
+	});
+
+test("multi-sig — counter-sig top-level olarak SAYILMAZ (allSignatures içinde görünmez)",
+	{ skip: !hasPfx && "run reference/run.sh" },
+	async () => {
+		const { counterSign } = await import("../src/counter-sign.ts");
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const base = await sign({
+			input: { bytes: new TextEncoder().encode("<d/>"), mimeType: "text/xml" },
+			signer: { pfx, password: "testpass" },
+		});
+		const withCs = await counterSign({ xml: base, signer: { pfx, password: "testpass" } });
+		const r = await verify(withCs);
+		assert.equal(r.valid, true);
+		if (!r.valid) return;
+		// Counter-sig nested olduk için top-level listede olmamalı — allSignatures
+		// ya hiç üretilmez (tek top-level) ya da sadece 1 entry içerir.
+		assert.ok(!r.allSignatures || r.allSignatures.length === 1);
+		assert.equal(r.counterSignatures?.length, 1, "counter-sig ayrı alanda sayılmalı");
 	});

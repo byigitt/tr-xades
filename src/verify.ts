@@ -24,9 +24,19 @@ export type SignerInfo = {
 	notAfter: Date;
 };
 
+export type PerSignatureResult =
+	| { signatureId?: string; valid: true; level: Level; signer: SignerInfo; signedAt?: Date; counterSignatures?: SignerInfo[] }
+	| { signatureId?: string; valid: false; reason: string };
+
 export type VerifyResult =
-	| { valid: true; level: Level; signer: SignerInfo; signedAt?: Date; counterSignatures?: SignerInfo[] }
-	| { valid: false; reason: string; detail?: unknown };
+	| {
+			valid: true; level: Level; signer: SignerInfo; signedAt?: Date;
+			counterSignatures?: SignerInfo[];
+			// Birden fazla top-level (paralel) imza varsa her birinin sonucu.
+			// Tek imza varsa alan yok.
+			allSignatures?: PerSignatureResult[];
+	  }
+	| { valid: false; reason: string; detail?: unknown; allSignatures?: PerSignatureResult[] };
 
 export type ResolverResult = Uint8Array | Node | null | Promise<Uint8Array | Node | null>;
 export type Resolver = (uri: string) => ResolverResult;
@@ -42,12 +52,54 @@ export async function verify(xml: string, opts: VerifyOptions = {}): Promise<Ver
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const doc: any = new DOMParser().parseFromString(xml, "text/xml");
-		const sig = first(doc, NS.ds, "Signature");
-		if (!sig) return invalid("ds:Signature bulunamadı");
-		return await verifyOne(doc, sig, opts);
+		const topLevel = collectTopLevelSignatures(doc);
+		if (topLevel.length === 0) return invalid("ds:Signature bulunamadı");
+
+		const primary = await verifyOne(doc, topLevel[0], opts);
+
+		if (topLevel.length === 1) return primary;
+
+		const all: PerSignatureResult[] = [];
+		for (const s of topLevel) {
+			const id: string | undefined = s.getAttribute("Id") ?? undefined;
+			const r = s === topLevel[0] ? primary : await verifyOne(doc, s, opts);
+			if (r.valid) {
+				all.push({
+					...(id ? { signatureId: id } : {}),
+					valid: true,
+					level: r.level,
+					signer: r.signer,
+					...(r.signedAt ? { signedAt: r.signedAt } : {}),
+					...(r.counterSignatures ? { counterSignatures: r.counterSignatures } : {}),
+				});
+			} else {
+				all.push({ ...(id ? { signatureId: id } : {}), valid: false, reason: r.reason });
+			}
+		}
+		return primary.valid ? { ...primary, allSignatures: all } : { ...primary, allSignatures: all };
 	} catch (e) {
 		return invalid(e instanceof Error ? e.message : "unknown error", e);
 	}
+}
+
+// Top-level imzalar: xades:CounterSignature içine gömülmemiş olanlar.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function collectTopLevelSignatures(doc: any): any[] {
+	const all = doc.getElementsByTagNameNS(NS.ds, "Signature");
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const out: any[] = [];
+	for (let i = 0; i < all.length; i++) {
+		const s = all.item(i);
+		let nested = false;
+		for (let n = s.parentNode; n; n = n.parentNode) {
+			if (n.nodeType === 1 && n.namespaceURI === NS.xades && n.localName === "CounterSignature") {
+				nested = true;
+				break;
+			}
+		}
+		if (!nested) out.push(s);
+	}
+	return out;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
