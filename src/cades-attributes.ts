@@ -95,6 +95,50 @@ export function buildSignatureTimeStampAttr(tstTokenDer: Uint8Array): pkijs.Attr
 	return attr(CADES_ATTR.signatureTimeStamp, schema);
 }
 
+// ETSI TS 101 733 §6.2.1 certificate-values (CAdES-XL):
+//   CertificateValues ::= SEQUENCE OF Certificate
+// Her DER zaten bir Sequence; doğrudan iç içe konur.
+export function buildCertValuesAttr(certs: Uint8Array[]): pkijs.Attribute {
+	const nodes = certs.map((d) => asn1js.fromBER(toAB(d)).result);
+	return attr(CADES_ATTR.certValues, new asn1js.Sequence({ value: nodes }));
+}
+
+// ETSI TS 101 733 §6.2.2 revocation-values (CAdES-XL):
+//   RevocationValues ::= SEQUENCE {
+//     crlVals      [0] EXPLICIT SEQUENCE OF CertificateList       OPTIONAL,
+//     ocspVals     [1] EXPLICIT SEQUENCE OF BasicOCSPResponse     OPTIONAL,
+//     otherRevVals [2] EXPLICIT OtherRevVals                      OPTIONAL }
+// ocsps parametresi tam OCSPResponse DER alır; spec BasicOCSPResponse istediği
+// için iç OCTET STRING açılır ve içeriği (BasicOCSPResponse DER) kullanılır.
+export function buildRevocationValuesAttr(input: {
+	crls?: Uint8Array[];
+	ocsps?: Uint8Array[];
+}): pkijs.Attribute {
+	const parts: asn1js.BaseBlock[] = [];
+	if (input.crls && input.crls.length > 0) {
+		const crlNodes = input.crls.map((d) => asn1js.fromBER(toAB(d)).result);
+		parts.push(taggedExplicit(0, new asn1js.Sequence({ value: crlNodes })));
+	}
+	if (input.ocsps && input.ocsps.length > 0) {
+		const basicNodes = input.ocsps.map((d) => {
+			const resp = new pkijs.OCSPResponse({ schema: asn1js.fromBER(toAB(d)).result });
+			if (!resp.responseBytes) throw new Error("buildRevocationValuesAttr: OCSPResponse basic içermiyor");
+			const basicDer = new Uint8Array(resp.responseBytes.response.valueBlock.valueHexView);
+			return asn1js.fromBER(toAB(basicDer)).result;
+		});
+		parts.push(taggedExplicit(1, new asn1js.Sequence({ value: basicNodes })));
+	}
+	return attr(CADES_ATTR.revocationValues, new asn1js.Sequence({ value: parts }));
+}
+
+// [n] EXPLICIT inner — RFC tag class=2 (context-specific), constructed.
+function taggedExplicit(tag: number, inner: asn1js.BaseBlock): asn1js.BaseBlock {
+	return new asn1js.Constructed({
+		idBlock: { tagClass: 3, tagNumber: tag },
+		value: [inner],
+	});
+}
+
 // --- helpers ---
 
 function toAB(u8: Uint8Array): ArrayBuffer {

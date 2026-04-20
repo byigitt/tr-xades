@@ -1,22 +1,24 @@
-// CAdES seviye yükseltici. v0.3.0 kapsamında yalnız CAdES-T.
-// LT / LTA sonraki sürümlere.
+// CAdES seviye yükseltici. BES/EPES → T → LT → LTA (LTA v0.4.x).
 //
-// ETSI TS 101 733 §6.1.1 signature-time-stamp: attribute value TimeStampToken;
-// messageImprint input = SignerInfo.signature OCTET STRING content octets.
+// Tek `cadesUpgrade()`; opts.to discriminated union.
+//   to:"T"  — signature-time-stamp (§6.1.1): SignerInfo.signature üzerinde RFC 3161.
+//   to:"LT" — certificate-values + revocation-values (§6.2): chain + CRL/OCSP.
+// Kullanıcı hedef seviyeye göre sırayla çağırır (BES→T→LT).
 
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
-import { buildSignatureTimeStampAttr } from "./cades-attributes.ts";
+import {
+	buildCertValuesAttr,
+	buildRevocationValuesAttr,
+	buildSignatureTimeStampAttr,
+} from "./cades-attributes.ts";
 import { CONTENT_TYPE } from "./cades-constants.ts";
 import { digest, type HashAlg } from "./crypto.ts";
 import { getTimestamp } from "./tsp.ts";
 
-export type CadesUpgradeOptions = {
-	bytes: Uint8Array;
-	to: "T";
-	tsa?: { url?: string; policyOid?: string };
-	digestAlgorithm?: HashAlg;
-};
+export type CadesUpgradeOptions =
+	| { bytes: Uint8Array; to: "T"; tsa?: { url?: string; policyOid?: string }; digestAlgorithm?: HashAlg }
+	| { bytes: Uint8Array; to: "LT"; chain: Uint8Array[]; crls?: Uint8Array[]; ocsps?: Uint8Array[] };
 
 export async function cadesUpgrade(opts: CadesUpgradeOptions): Promise<Uint8Array> {
 	const asn = asn1js.fromBER(toAB(opts.bytes));
@@ -31,9 +33,8 @@ export async function cadesUpgrade(opts: CadesUpgradeOptions): Promise<Uint8Arra
 	}
 	const si = sd.signerInfos[0]!;
 
-	if (opts.to === "T") {
-		await addSignatureTimeStamp(si, opts);
-	}
+	if (opts.to === "T") await addSignatureTimeStamp(si, opts);
+	else if (opts.to === "LT") addLongTermValues(si, opts);
 
 	// Re-serialize SignedData → ContentInfo
 	const out = new pkijs.ContentInfo({
@@ -57,11 +58,25 @@ async function addSignatureTimeStamp(
 		policyOid: opts.tsa?.policyOid,
 	});
 
-	const attr = buildSignatureTimeStampAttr(ts.token);
+	addUnsignedAttr(si, buildSignatureTimeStampAttr(ts.token));
+}
+
+function addLongTermValues(
+	si: pkijs.SignerInfo,
+	opts: Extract<CadesUpgradeOptions, { to: "LT" }>,
+): void {
+	addUnsignedAttr(si, buildCertValuesAttr(opts.chain));
+	const crls = opts.crls ?? [];
+	const ocsps = opts.ocsps ?? [];
+	if (crls.length === 0 && ocsps.length === 0) return;
+	addUnsignedAttr(si, buildRevocationValuesAttr({ crls, ocsps }));
+}
+
+function addUnsignedAttr(si: pkijs.SignerInfo, a: pkijs.Attribute): void {
 	if (!si.unsignedAttrs) {
-		si.unsignedAttrs = new pkijs.SignedAndUnsignedAttributes({ type: 1, attributes: [attr] });
+		si.unsignedAttrs = new pkijs.SignedAndUnsignedAttributes({ type: 1, attributes: [a] });
 	} else {
-		si.unsignedAttrs.attributes = [...si.unsignedAttrs.attributes, attr];
+		si.unsignedAttrs.attributes = [...si.unsignedAttrs.attributes, a];
 	}
 }
 
