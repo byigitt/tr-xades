@@ -2,24 +2,42 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
-## [Unreleased] — v0.2 gap closure
+## [0.2.0] — MA3 interop + XAdES gap closure
 
 ### Eklendi
 
-- **`placement: "ubl-ma3-compat"`** — MA3 (TÜBİTAK BİLGEM) doğrulayıcısı ile
-  UBL-TR enveloped interop. Input XML base64 olarak `ds:Object`'te, `ds:Reference`
-  `URI="#<objectId>"` (enveloped-signature transform yok). MA3'ün kendi `enveloped`
-  çıktısıyla yapısal olarak birebir. `reference/verify.sh` ile doğrulandı: MA3'ün
-  'Temel doğrulama başarılı', sadece cert chain trust (self-signed test cert Kamu SM
-  bundle'ında yok) reddediliyor.
-- XMLDSig şema sırası düzeltmesi: `ds:Signature` child'ları artık `SignedInfo`,
-  `SignatureValue`, `KeyInfo`, `Object*` sırasında (öncesinde data `Object`
-  `KeyInfo`'dan önce geliyordu).
+- **`placement: "ubl-ma3-compat"`** (`src/sign.ts`) — MA3 (TÜBİTAK BİLGEM)
+  doğrulayıcısı ile tam yapısal interop. Input XML base64 olarak `ds:Object`'te,
+  `ds:Reference` `URI="#<objectId>"` (enveloped-signature transform yok) — MA3'ün
+  kendi enveloped çıktısıyla birebir. MA3 verifier'ı 'Temel doğrulama başarılı'
+  verir (tek kalan: cert chain trust self-signed test cert için; gerçek mali mühür
+  ile çözülür).
+- **External URI resolver** (`src/verify.ts`) — `verify(xml, opts?)`. `VerifyOptions.resolver?`
+  callback ile detached imzalar ve external URI referansları çözün. MA3 detached
+  fixture'ı artık file-system resolver ile valid.
+- **`counterSign(opts)`** (`src/counter-sign.ts`) — XAdES CounterSignature. Mevcut
+  `ds:Signature`'ın `ds:SignatureValue`'suna yeni imza atar
+  (`Type="...#CountersignedSignature"`), parent'ın
+  `xades:UnsignedSignatureProperties/xades:CounterSignature` altına yerleştirilir.
+- **Recursive counter-sig verify** (`src/verify.ts`) — `VerifyResult.counterSignatures?:
+  SignerInfo[]` ile geçerli counter-sig'lerin signer bilgisi.
+- **Paralel (multi) imza** (`src/verify.ts`) — `ubl-ma3-compat` iki kez çağrılınca
+  bağımsız paralel imzalar; verify `allSignatures?: PerSignatureResult[]` ile her
+  top-level sig'i ayrı ayrı raporlar (primary hala ilk sig).
+- XMLDSig şema çocuk sırası düzeltmesi: `ds:Signature` artık
+  `SignedInfo, SignatureValue, KeyInfo, Object*` sırasında.
+
+### Değişti
+
+- `verify(xml)` → `verify(xml, opts?)` (eklemeli değişiklik; eski çağrılar çalışır).
+- `sign.ts`'ten `resolveSigner`, `buildKeyInfo`, `SignerInput` tipi; `upgrade.ts`'ten
+  `ensureUnsignedSignatureProperties` export edildi — yeni `counter-sign.ts` ile
+  duplicate logic engellendi.
 
 ### Kaldırılan bilinen sınırlama
 
-- MA3 interop'ta UBL enveloped sorunu çözüldü (v0.1 'Temel doğrulama başarısız'
-  hatası). `ubl-ma3-compat` modu ile MA3 temel doğrulaması geçiyor.
+- MA3 interop'ta UBL enveloped sorunu (v0.1 'Temel doğrulama başarısız') çözüldü.
+- Detached imza doğrulama (v0.1'de yoktu) artık kullanıcı resolver'ıyla çalışıyor.
 
 ## [0.1.0] — Unreleased (v0.1.0 taslak)
 
