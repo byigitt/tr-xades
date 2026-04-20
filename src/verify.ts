@@ -25,7 +25,7 @@ export type SignerInfo = {
 };
 
 export type VerifyResult =
-	| { valid: true; level: Level; signer: SignerInfo; signedAt?: Date }
+	| { valid: true; level: Level; signer: SignerInfo; signedAt?: Date; counterSignatures?: SignerInfo[] }
 	| { valid: false; reason: string; detail?: unknown };
 
 export type ResolverResult = Uint8Array | Node | null | Promise<Uint8Array | Node | null>;
@@ -44,7 +44,15 @@ export async function verify(xml: string, opts: VerifyOptions = {}): Promise<Ver
 		const doc: any = new DOMParser().parseFromString(xml, "text/xml");
 		const sig = first(doc, NS.ds, "Signature");
 		if (!sig) return invalid("ds:Signature bulunamadı");
+		return await verifyOne(doc, sig, opts);
+	} catch (e) {
+		return invalid(e instanceof Error ? e.message : "unknown error", e);
+	}
+}
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function verifyOne(doc: any, sig: any, opts: VerifyOptions): Promise<VerifyResult> {
+	try {
 		const si = firstChild(sig, NS.ds, "SignedInfo");
 		if (!si) return invalid("ds:SignedInfo yok");
 
@@ -81,15 +89,43 @@ export async function verify(xml: string, opts: VerifyOptions = {}): Promise<Ver
 			return invalid("SignedInfo imzası doğrulanamadı");
 		}
 
+		const counterSigners: SignerInfo[] = [];
+		for (const nested of findCounterSignatures(sig)) {
+			const r = await verifyOne(doc, nested, opts);
+			if (r.valid) counterSigners.push(r.signer);
+		}
+
+		const signedAt = extractSigningTime(sig);
 		return {
 			valid: true,
 			level: detectLevel(sig),
 			signer: extractSignerInfo(certDer),
-			signedAt: extractSigningTime(sig),
+			...(signedAt ? { signedAt } : {}),
+			...(counterSigners.length ? { counterSignatures: counterSigners } : {}),
 		};
 	} catch (e) {
 		return invalid(e instanceof Error ? e.message : "unknown error", e);
 	}
+}
+
+// Find counter-sig ds:Signature'ları: sig/Object/QualifyingProperties/UnsignedProperties/
+// UnsignedSignatureProperties/CounterSignature/ds:Signature.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function findCounterSignatures(sig: any): any[] {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const out: any[] = [];
+	for (const obj of childrenByTag(sig, NS.ds, "Object")) {
+		for (const qp of childrenByTag(obj, NS.xades, "QualifyingProperties")) {
+			for (const up of childrenByTag(qp, NS.xades, "UnsignedProperties")) {
+				for (const usp of childrenByTag(up, NS.xades, "UnsignedSignatureProperties")) {
+					for (const cs of childrenByTag(usp, NS.xades, "CounterSignature")) {
+						for (const s of childrenByTag(cs, NS.ds, "Signature")) out.push(s);
+					}
+				}
+			}
+		}
+	}
+	return out;
 }
 
 // ---- Reference digest verification ----

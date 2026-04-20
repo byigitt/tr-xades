@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { counterSign } from "../src/counter-sign.ts";
 import { sign } from "../src/sign.ts";
+import { verify } from "../src/verify.ts";
 
 const FIXTURE = join(import.meta.dirname, "..", "reference", "fixtures", "test.p12");
 const hasPfx = (() => { try { readFileSync(FIXTURE); return true; } catch { return false; } })();
@@ -29,4 +30,11 @@ test("counterSign — parent ds:Signature'a ikinci imzacı ekler",
 		assert.match(withCounter, /Type="http:\/\/uri\.etsi\.org\/01903#CountersignedSignature"/);
 		// Parent SignatureValue'ya Id eklenmiş olmalı
 		assert.match(withCounter, /<ds:SignatureValue[^>]*Id="Signature-Value-Id-/);
+
+		// verify() parent'ı doğrular ve counterSignatures dizisinde counter-sig'in signer info'sunu verir.
+		const r = await verify(withCounter);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.ok(r.counterSignatures && r.counterSignatures.length === 1, "1 counter-sig bekleniyor");
+		assert.equal(r.counterSignatures![0].subject, "CN=Test Signer,O=tr-xades test,C=TR");
 	});
