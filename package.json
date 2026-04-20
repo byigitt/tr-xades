@@ -4,24 +4,76 @@
   "description": "Türkiye profili XAdES (BES/T/LT/LTA) imza kütüphanesi — clean-room, ETSI TS 101 903 / EN 319 132 uyumlu",
   "type": "module",
   "exports": {
-    "./sign":       { "types": "./dist/sign.d.ts",       "import": "./dist/sign.js" },
-    "./verify":     { "types": "./dist/verify.d.ts",     "import": "./dist/verify.js" },
-    "./upgrade":    { "types": "./dist/upgrade.d.ts",    "import": "./dist/upgrade.js" },
-    "./counter-sign": { "types": "./dist/counter-sign.d.ts", "import": "./dist/counter-sign.js" },
-    "./cades-sign":    { "types": "./dist/cades-sign.d.ts",    "import": "./dist/cades-sign.js" },
-    "./cades-verify":  { "types": "./dist/cades-verify.d.ts",  "import": "./dist/cades-verify.js" },
-    "./cades-upgrade": { "types": "./dist/cades-upgrade.d.ts", "import": "./dist/cades-upgrade.js" },
-    "./pfx":        { "types": "./dist/pfx.d.ts",        "import": "./dist/pfx.js" },
-    "./crypto":     { "types": "./dist/crypto.d.ts",     "import": "./dist/crypto.js" },
-    "./c14n":       { "types": "./dist/c14n.d.ts",       "import": "./dist/c14n.js" },
-    "./policy":     { "types": "./dist/policy.d.ts",     "import": "./dist/policy.js" },
-    "./tsp":        { "types": "./dist/tsp.d.ts",        "import": "./dist/tsp.js" },
-    "./ocsp":       { "types": "./dist/ocsp.d.ts",       "import": "./dist/ocsp.js" },
-    "./crl":        { "types": "./dist/crl.d.ts",        "import": "./dist/crl.js" },
-    "./chain":      { "types": "./dist/chain.d.ts",      "import": "./dist/chain.js" },
-    "./constants":  { "types": "./dist/constants.d.ts",  "import": "./dist/constants.js" }
+    "./sign": {
+      "types": "./dist/sign.d.ts",
+      "import": "./dist/sign.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js"
+    },
+    "./upgrade": {
+      "types": "./dist/upgrade.d.ts",
+      "import": "./dist/upgrade.js"
+    },
+    "./counter-sign": {
+      "types": "./dist/counter-sign.d.ts",
+      "import": "./dist/counter-sign.js"
+    },
+    "./cades-sign": {
+      "types": "./dist/cades-sign.d.ts",
+      "import": "./dist/cades-sign.js"
+    },
+    "./cades-verify": {
+      "types": "./dist/cades-verify.d.ts",
+      "import": "./dist/cades-verify.js"
+    },
+    "./cades-upgrade": {
+      "types": "./dist/cades-upgrade.d.ts",
+      "import": "./dist/cades-upgrade.js"
+    },
+    "./pfx": {
+      "types": "./dist/pfx.d.ts",
+      "import": "./dist/pfx.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto.d.ts",
+      "import": "./dist/crypto.js"
+    },
+    "./c14n": {
+      "types": "./dist/c14n.d.ts",
+      "import": "./dist/c14n.js"
+    },
+    "./policy": {
+      "types": "./dist/policy.d.ts",
+      "import": "./dist/policy.js"
+    },
+    "./tsp": {
+      "types": "./dist/tsp.d.ts",
+      "import": "./dist/tsp.js"
+    },
+    "./ocsp": {
+      "types": "./dist/ocsp.d.ts",
+      "import": "./dist/ocsp.js"
+    },
+    "./crl": {
+      "types": "./dist/crl.d.ts",
+      "import": "./dist/crl.js"
+    },
+    "./chain": {
+      "types": "./dist/chain.d.ts",
+      "import": "./dist/chain.js"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.js"
+    }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo --noEmit",
@@ -29,14 +81,26 @@
     "test": "node --import tsx --test test/**/*.test.ts",
     "example:efatura": "node --import tsx examples/sign-efatura.ts"
   },
-  "keywords": ["xades", "esignature", "eimza", "tubitak", "kamusm", "etsi", "e-fatura", "ubl-tr"],
+  "keywords": [
+    "xades",
+    "esignature",
+    "eimza",
+    "tubitak",
+    "kamusm",
+    "etsi",
+    "e-fatura",
+    "ubl-tr"
+  ],
   "license": "MIT",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@peculiar/webcrypto": "^1.5.0",
     "@peculiar/x509": "^2.0.0",
     "@xmldom/xmldom": "^0.9.10",
     "asn1js": "^3.0.9",
+    "fflate": "^0.8.2",
     "pkijs": "^3.4.0",
     "pvutils": "^1.1.5",
     "xadesjs": "^2.6.7",
