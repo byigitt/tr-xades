@@ -143,7 +143,7 @@ Kaskad yok: BES→T→LT→LTA sırasını kullanıcı kurar.
 
 ## Interop
 
-`reference/out/*.xml`'deki MA3 2.3.11.8 fixture'ları `verify()` ile geçiyor (bkz. `docs/02-fixtures.md`, `docs/04-interop-report.md`). Ters yönde (bizim ürettiğimiz imzaları MA3 ile doğrulama) planda; `reference/driver/Ma3Verify.java` ile.
+`reference/out/*.xml`'deki MA3 2.3.11.8 fixture'ları `verify()` ile geçiyor. Ters yönde (bizim ürettiğimiz imzaları MA3 ile doğrulama) planda; `reference/driver/Ma3Verify.java` ile.
 
 ## Geliştirme
 

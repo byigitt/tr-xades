@@ -31,7 +31,7 @@ kamuya açık TR dokümanlardan.
 - **Interop:** MA3 enveloping + enveloped-embedded fixture'ları `verify()`'da
   valid geçiyor. Ters yön (tr-xades → MA3) enveloping için geçiyor (chain
   trust hariç). Enveloped UBL için yapısal konvansiyon farkı (MA3 fragment-id
-  kullanır) v0.2 kapsamında. Detaylar: `docs/04-interop-report.md`.
+  kullanır) v0.2 kapsamında.
 - **Test:** 32 offline test (lint + typecheck clean). Opt-in live TSA
   testleri FreeTSA ile çalışıyor (BES→T + LT→LTA round-trip verify=✅).
 - **Örnek:** `examples/sign-efatura.ts` — UBL 2.1 + TR 1.2 TEMELFATURA
