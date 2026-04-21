@@ -1,0 +1,28 @@
+services:
+  ocsp:
+    image: alpine:3.20
+    working_dir: /data
+    command: >
+      sh -lc "apk add --no-cache openssl >/dev/null &&
+      exec openssl ocsp
+      -index /data/int.index.txt
+      -port 8080
+      -rsigner /data/responder.crt
+      -rkey /data/responder.key
+      -CA /data/int.crt
+      -issuer /data/int.crt
+      -text
+      -ignore_err"
+    volumes:
+      - ./ca:/data:ro
+    ports:
+      - "18080:8080"
+
+  crl:
+    image: python:3.12-alpine
+    working_dir: /data/www
+    command: python -m http.server 8081 --bind 0.0.0.0
+    volumes:
+      - ./ca/www:/data/www:ro
+    ports:
+      - "18081:8081"
