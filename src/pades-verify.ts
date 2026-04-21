@@ -10,25 +10,17 @@
 //      varsa LTA. Aksi halde CAdES level (BES/EPES/T).
 
 import { cadesVerify } from "./cades-verify.ts";
-import { extractByteRangeBytes, findContentsPlaceholder, readByteRange } from "./pades-core.ts";
+import { extractByteRangeBytes, extractCms, readByteRange } from "./pades-core.ts";
 import type { VerifyResult } from "./verify.ts";
 
 export async function padesVerify(pdf: Uint8Array): Promise<VerifyResult> {
 	let byteRange: [number, number, number, number];
-	let hex: { start: number; end: number };
+	let cmsDer: Uint8Array;
 	try {
 		byteRange = readByteRange(pdf);
-		hex = findContentsPlaceholder(pdf);
+		cmsDer = extractCms(pdf);
 	} catch (e) {
 		return { valid: false, reason: `padesVerify: ${(e as Error).message}` };
-	}
-
-	const hexStr = toLatin1(pdf.subarray(hex.start, hex.end)).replace(/\s/g, "");
-	const trimmed = hexStr.replace(/0+$/, "");
-	const even = trimmed + (trimmed.length % 2 ? "0" : "");
-	const cmsDer = new Uint8Array(Buffer.from(even, "hex"));
-	if (cmsDer.length < 8) {
-		return { valid: false, reason: "padesVerify: /Contents hex çok kısa — placeholder boş" };
 	}
 
 	const detachedContent = extractByteRangeBytes(pdf, byteRange);

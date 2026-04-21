@@ -92,6 +92,15 @@ export function findContentsPlaceholder(pdf: Uint8Array): { start: number; end: 
 	return { start: lt + 1, end: gt };
 }
 
+/** /Contents hex'inden CMS DER'i çıkarır (trailing zero strip). Boşsa hata. */
+export function extractCms(pdf: Uint8Array): Uint8Array {
+	const { start, end } = findContentsPlaceholder(pdf);
+	const hex = toLatin1(pdf.subarray(start, end)).replace(/\s/g, "").replace(/0+$/, "");
+	if (hex.length === 0) throw new Error("pades: /Contents hex boş — PDF imzalanmamış");
+	const even = hex + (hex.length % 2 ? "0" : "");
+	return new Uint8Array(Buffer.from(even, "hex"));
+}
+
 /** CMS DER byte'larını /Contents placeholder'ına hex yazar (uzunluk korunur). */
 export function spliceSignature(pdf: Uint8Array, cms: Uint8Array): Uint8Array {
 	const { start, end } = findContentsPlaceholder(pdf);
