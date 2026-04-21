@@ -2,6 +2,78 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [0.5.0] — PAdES + repo rename `tr-xades` → `tr-esign`
+
+Dördüncü imza formatı: PAdES (PDF e-imza). Repo ve paket adı XAdES + CAdES
++ ASiC + PAdES kapsamını yansıtmak için `tr-esign`'e taşındı.
+
+### Eklendi — PAdES (ETSI EN 319 142-1)
+
+- **`src/pades-core.ts`** — PDF incremental update primitive'leri:
+  `addSignaturePlaceholder`, `readByteRange`, `extractByteRangeBytes`,
+  `findContentsPlaceholder`, `extractCms`, `spliceSignature`,
+  `SUBFILTER_ETSI_RFC3161`. `@signpdf/placeholder-plain` string-tabanlı
+  incremental update kullanır + /ByteRange placeholder'ı actual değerlerle
+  rewrite edilir.
+- **`src/pades-sign.ts`** — `padesSign(opts)`. PAdES-B-B + EPES.
+  Akış: placeholder ekle → ByteRange hesapla →
+  `cadesSign({contentIncluded:false})` → /Contents hex'ine splice. CMS core
+  reuse (CAdES çıktısı kullanılır). Options: reason/location/contactInfo/
+  signerName/signatureSize + CAdES pass-through (policy/commitmentType/
+  digestAlgorithm).
+- **`src/pades-verify.ts`** — `padesVerify(pdf): VerifyResult`. /ByteRange +
+  /Contents çöz, `cadesVerify(cms, {detachedContent})` çağır. Seviye:
+  /DSS (PAdES §5.4) → LT, /SubFilter /ETSI.RFC3161 (DocTimeStamp §5.5)
+  → LTA, yoksa CAdES level. VerifyResult XAdES/CAdES ile aynı tip.
+- **`src/pades-upgrade.ts`** — `padesUpgrade()` discriminated:
+  - `to:"T"` — extractCms + cadesUpgrade(T) + splice. Length-preserving.
+  - `to:"LT"` — `addDss()` çağırır (aşağıda).
+  - `to:"LTA"` — `addDocTimeStamp()` çağırır (aşağıda).
+- **`src/pades-dss.ts`** — `addDss(pdf, {certs,crls,ocsps})`. EN 319 142-1
+  §5.4 Document Security Store incremental update: her DER → PDF stream
+  obj, /DSS dict /Certs/CRLs/OCSPs, güncel Root (+ /DSS ref), yeni xref +
+  trailer (/Prev eski offset). Orijinal imza ByteRange'i dokunulmaz.
+- **`src/pades-timestamp.ts`** — `addDocTimeStamp(pdf, {tsa, digestAlgorithm})`.
+  EN 319 142-1 §5.5: ikinci /Sig dict /SubFilter /ETSI.RFC3161, /Contents =
+  RFC 3161 TimeStampToken. addSignaturePlaceholder(subFilter:ETSI.RFC3161)
+  + ByteRange hash + getTimestamp + splice.
+- **Subpath exports**: `tr-esign/pades-sign`, `tr-esign/pades-verify`,
+  `tr-esign/pades-upgrade`.
+- **Deps**: `@signpdf/placeholder-plain` + `@signpdf/utils` (MIT).
+  `pdf-lib` devDep (test PDF üretimi).
+
+### Değişti
+
+- **Repo + paket yeniden adlandırıldı**: `tr-xades` → `tr-esign`. İsim artık
+  XAdES + CAdES + ASiC + PAdES hepsini kapsayan TR e-imza kütüphanesini
+  yansıtıyor. GitHub repo rename yapıldı; eski URL 301 redirect. package.json
+  description: "Turkey profile XAdES + CAdES + ASiC + PAdES signature
+  library — clean-room; ETSI EN 319 132 / TS 101 733 / EN 319 162 /
+  EN 319 142 uyumlu".
+- **Test fixture DN**: `O=tr-xades test` → `O=tr-esign test`.
+  `reference/fixtures/test.p12` ve `test-chain.p12` yeni DN ile regen.
+  MA3 fixture'ları yeni cert ile tekrar üretildi.
+- **`src/pades-core.ts`** — `readByteRange` + `writeByteRange` çoklu imza
+  PDF'lerinde yanlış /ByteRange yakalıyordu; son (en yeni) olanı almak üzere
+  düzeltildi (LTA zinciri için kritik).
+- **`src/cades-verify.ts`** (v0.4'ten): `certToSignerInfo` export — pades-verify
+  CAdES ile ortak VerifyResult için kullanacaktı; asında doğrudan değil,
+  cadesVerify çağrısı içinden implicitly reuse ediliyor.
+
+### Bilinen sınırlamalar
+
+- **MA3 CAdES + PAdES cross-verify ertelendi (v0.5+)**: MA3 addSigner ve
+  PAdESContainer.sign() online revocation zorunlu kılıyor. Test CA
+  placeholder URL'leri ulaşılamadığı için her iki format için de fixture
+  üretilemedi. `cades-cross-verify.test.ts` ve gelecek `pades-cross-verify.
+  test.ts` fixture varsa doğrular, yoksa skip. Gerçek TR mali mühür PFX
+  veya yerel OCSP responder (docker openssl ocsp) ile çalışacak.
+- **PAdES LTA /Type**: @signpdf `/Type /Sig` yazıyor; EN 319 142-1 §5.5
+  strict `/Type /DocTimeStamp` ister. Adobe/DSS/MA3 ikisini de kabul
+  eder. Strict compliance v0.5.x'e.
+- **CAdES-LTA ATSv3** (v0.4'ten aktarıldı): v2 yeterli, v3 ats-hash-index
+  gerektiğinde eklenir.
+
 ## [0.4.0] — CAdES-LT / -LTA + ASiC
 
 Uzun süreli doğrulama + arşivleme (CAdES) ve zip konteyner (ASiC).
