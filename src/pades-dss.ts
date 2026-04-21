@@ -9,6 +9,8 @@
 // Orijinal imza ByteRange'i dokunulmaz; eski bayt-bayt korunur. Incremental
 // update kuralı: yalnız yeni bayt eklenir.
 
+import { parseTrailer, writeXrefSection } from "./pades-xref.ts";
+
 export type DssInput = {
 	certs?: Uint8Array[];
 	crls?: Uint8Array[];
@@ -18,20 +20,9 @@ export type DssInput = {
 
 export function addDss(pdf: Uint8Array, dss: DssInput): Uint8Array {
 	const str = toLatin1(pdf);
-
-	// 1. En son trailer ve startxref — /Root, /Size ve önceki xref offset'i.
-	const lastEof = str.lastIndexOf("%%EOF");
-	const sxrIdx = str.lastIndexOf("startxref", lastEof);
-	if (sxrIdx < 0) throw new Error("pades-dss: startxref yok");
-	const prevXrefOffset = parseInt(str.substring(sxrIdx + 10, lastEof).trim().split(/\s+/)[0]!, 10);
-	const trailerIdx = str.lastIndexOf("trailer", lastEof);
-	if (trailerIdx < 0) throw new Error("pades-dss: trailer yok");
-	const trailerBody = str.substring(trailerIdx, sxrIdx);
-	const rootM = /\/Root\s+(\d+)\s+\d+\s+R/.exec(trailerBody);
-	const sizeM = /\/Size\s+(\d+)/.exec(trailerBody);
-	if (!rootM || !sizeM) throw new Error("pades-dss: trailer /Root veya /Size yok");
-	const rootObjNum = parseInt(rootM[1]!, 10);
-	let nextObjNum = parseInt(sizeM[1]!, 10);
+	const trailer = parseTrailer(pdf);
+	const rootObjNum = parseInt(trailer.root.split(/\s+/)[0]!, 10);
+	let nextObjNum = trailer.size;
 
 	// 2. Mevcut Root object'in BODY'si (son incremental'daki <<..>>).
 	// PDF'te "N 0 obj" birden fazla yerde olabilir; scan ederek sonuncuyu al.
@@ -84,27 +75,16 @@ export function addDss(pdf: Uint8Array, dss: DssInput): Uint8Array {
 		...streamEntries.map(({ num, offset }) => [num, offset] as [number, number]),
 		[dssObjNum, dssOffset] as [number, number],
 		[rootObjNum, rootOffset] as [number, number],
-	].sort((a, b) => a[0] - b[0]);
+	];
 
 	const xrefOffset = cursor;
-	let xref = "xref\n0 1\n0000000000 65535 f \n";
-	let i = 0;
-	while (i < entries.length) {
-		let j = i;
-		while (j + 1 < entries.length && entries[j + 1]![0] === entries[j]![0] + 1) j++;
-		const first = entries[i]![0];
-		xref += `${first} ${j - i + 1}\n`;
-		for (let k = i; k <= j; k++) {
-			xref += `${entries[k]![1].toString().padStart(10, "0")} 00000 n \n`;
-		}
-		i = j + 1;
-	}
-	parts.push(xref);
-
-	// Trailer + startxref + %%EOF
-	const trailer = `trailer\n<< /Size ${nextObjNum} /Root ${rootObjNum} 0 R /Prev ${prevXrefOffset} >>\n`;
-	parts.push(trailer);
-	parts.push(`startxref\n${xrefOffset}\n%%EOF\n`);
+	parts.push(writeXrefSection(entries, {
+		size: nextObjNum,
+		root: trailer.root,
+		...(trailer.info && { info: trailer.info }),
+		prev: trailer.startxref,
+		startxref: xrefOffset,
+	}));
 
 	// 5. Birleştir
 	const tail = parts.join("");

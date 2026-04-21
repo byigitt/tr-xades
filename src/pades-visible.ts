@@ -13,6 +13,8 @@
 // MA3 referans: ma3api-pades-pdfbox VisibleSignature + SignaturePanel
 // (page, x, y, width, height, image?, text?). Biz pdf-lib yok, hand-rolled.
 
+import { parseTrailer, writeXrefSection } from "./pades-xref.ts";
+
 export type VisibleSignatureOptions = {
 	/** 1-tabanlı sayfa numarası (kullanıcı gözüyle sayfa 1). */
 	page: number;
@@ -71,17 +73,8 @@ export function buildAppearance(opts: VisibleSignatureOptions): AppearanceResult
  */
 export function addVisibleAppearance(pdf: Uint8Array, opts: VisibleSignatureOptions): Uint8Array {
 	const str = toLatin1(pdf);
-
-	// Trailer meta
-	const lastEof = str.lastIndexOf("%%EOF");
-	const sxrIdx = str.lastIndexOf("startxref", lastEof);
-	const prevXref = parseInt(str.substring(sxrIdx + 10, lastEof).trim().split(/\s+/)[0]!, 10);
-	const trailerIdx = str.lastIndexOf("trailer", lastEof);
-	const trailer = str.substring(trailerIdx, sxrIdx);
-	const rootM = /\/Root\s+(\d+)\s+\d+\s+R/.exec(trailer);
-	const sizeM = /\/Size\s+(\d+)/.exec(trailer);
-	if (!rootM || !sizeM) throw new Error("pades-visible: trailer parse hatası");
-	let nextObj = parseInt(sizeM[1]!, 10);
+	const trailer = parseTrailer(pdf);
+	let nextObj = trailer.size;
 
 	// Widget annotation obj'unu bul — /Subtype/Widget (tek imza alanı varsayıldı).
 	const widgetM = /(\d+)\s+0\s+obj\s*<<([^>]*\/Subtype\s*\/Widget[^>]*)>>/s.exec(str);
@@ -133,26 +126,16 @@ export function addVisibleAppearance(pdf: Uint8Array, opts: VisibleSignatureOpti
 
 	// Yeni xref: sadece güncellenen (widget) + yeni (form) objeler.
 	const xrefOffset = cursor;
-	const entries: [number, number][] = ([
-		[formObjNum, formOffset] as [number, number],
-		[widgetNum, widgetOffset] as [number, number],
-	]).sort((a, b) => a[0] - b[0]);
-	let xref = "xref\n0 1\n0000000000 65535 f \n";
-	let i = 0;
-	while (i < entries.length) {
-		let j = i;
-		while (j + 1 < entries.length && entries[j + 1]![0] === entries[j]![0] + 1) j++;
-		xref += `${entries[i]![0]} ${j - i + 1}\n`;
-		for (let k = i; k <= j; k++) {
-			xref += `${entries[k]![1].toString().padStart(10, "0")} 00000 n \n`;
-		}
-		i = j + 1;
-	}
-	parts.push(xref);
-
-	const trailerStr = `trailer\n<< /Size ${nextObj} /Root ${rootM[1]} 0 R /Prev ${prevXref} >>\n`;
-	parts.push(trailerStr);
-	parts.push(`startxref\n${xrefOffset}\n%%EOF\n`);
+	parts.push(writeXrefSection([
+		[formObjNum, formOffset],
+		[widgetNum, widgetOffset],
+	], {
+		size: nextObj,
+		root: trailer.root,
+		...(trailer.info && { info: trailer.info }),
+		prev: trailer.startxref,
+		startxref: xrefOffset,
+	}));
 
 	const tail = parts.join("");
 	const out = new Uint8Array(pdf.length + tail.length);

@@ -2,12 +2,17 @@
 // ETSI EN 319 142-1 §5.3: /SubFilter /ETSI.CAdES.detached, CMS SignedData
 // detached, eContent yok; messageDigest = hash(ByteRange bytes).
 //
-// Placeholder ekleme @signpdf/placeholder-plain ile — string-tabanlı incremental
-// update (xref extend, new trailer, /Prev eski xref). ByteRange ve /Contents
-// scanning elle yapıldı (küçük işlem, bağımlılık azaltır).
+// Placeholder ekleme @signpdf/placeholder-plain ile.
+// Ancak bu paket classic xref table bekliyor. Modern xref-stream PDF gelirse
+// önce clean-room normalize ediyoruz: ObjStm içindeki sıkıştırılmış objeleri
+// dosya sonuna açıp standalone yazıyor, ardından full classic xref table
+// append ediyoruz. Böylece signpdf sadece classic son revision'ı görüyor.
+// ByteRange ve /Contents scanning yine elimizde.
 
+import { inflateSync } from "node:zlib";
 import { plainAddPlaceholder } from "@signpdf/placeholder-plain";
 import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
+import { parseTrailer, writeXrefSection } from "./pades-xref.ts";
 
 /** DocTimeStamp SubFilter — EN 319 142-1 §5.5. */
 export const SUBFILTER_ETSI_RFC3161 = "ETSI.RFC3161";
@@ -25,8 +30,9 @@ export type PlaceholderOptions = {
 };
 
 export function addSignaturePlaceholder(pdfIn: Uint8Array, opts: PlaceholderOptions = {}): Uint8Array {
+	const pdf = normalizeForPlaceholder(pdfIn);
 	const raw = plainAddPlaceholder({
-		pdfBuffer: Buffer.from(pdfIn),
+		pdfBuffer: Buffer.from(pdf),
 		reason: opts.reason ?? "Signing",
 		location: opts.location ?? "",
 		contactInfo: opts.contactInfo ?? "",
@@ -132,6 +138,76 @@ export function spliceSignature(pdf: Uint8Array, cms: Uint8Array): Uint8Array {
 	const padded = hex + "0".repeat(placeholderLen - hex.length);
 	const out = new Uint8Array(pdf);
 	for (let i = 0; i < padded.length; i++) out[start + i] = padded.charCodeAt(i);
+	return out;
+}
+
+function normalizeForPlaceholder(pdf: Uint8Array): Uint8Array {
+	const trailer = parseTrailer(pdf);
+	if (trailer.kind === "classic") return pdf;
+
+	const str = toLatin1(pdf);
+	const offsets = new Map<number, number>();
+	for (const m of str.matchAll(/(\d+)\s+(\d+)\s+obj\b/g)) offsets.set(Number(m[1]), m.index!);
+
+	const parts: string[] = [];
+	let cursor = pdf.length;
+	for (const obj of readObjectStreams(str)) {
+		for (const entry of expandObjectStream(obj)) {
+			const bytes = `\n${entry.num} 0 obj\n${entry.body}\nendobj\n`;
+			const offset = cursor + 1;
+			offsets.set(entry.num, offset);
+			parts.push(bytes);
+			cursor += bytes.length;
+		}
+	}
+
+	const xrefOffset = cursor;
+	parts.push(writeXrefSection([...offsets.entries()], {
+		size: trailer.size,
+		root: trailer.root,
+		...(trailer.info && { info: trailer.info }),
+		startxref: xrefOffset,
+	}));
+
+	const tail = parts.join("");
+	const out = new Uint8Array(pdf.length + tail.length);
+	out.set(pdf, 0);
+	for (let i = 0; i < tail.length; i++) out[pdf.length + i] = tail.charCodeAt(i);
+	return out;
+}
+
+function readObjectStreams(str: string): { dict: string; stream: Uint8Array }[] {
+	const out: { dict: string; stream: Uint8Array }[] = [];
+	const re = /(\d+)\s+(\d+)\s+obj\s*<<(.*?)>>\s*stream\r?\n/gs;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(str)) !== null) {
+		if (!/\/Type\s*\/ObjStm\b/.test(m[3]!)) continue;
+		const length = /\/Length\s+(\d+)\b/.exec(m[3]!)?.[1];
+		if (!length) throw new Error("pades: ObjStm /Length yok");
+		const start = m.index + m[0].length;
+		const end = start + Number(length);
+		out.push({ dict: m[3]!, stream: new Uint8Array(Buffer.from(str.slice(start, end), "latin1")) });
+		re.lastIndex = end;
+	}
+	return out;
+}
+
+function expandObjectStream(obj: { dict: string; stream: Uint8Array }): Array<{ num: number; body: string }> {
+	const n = Number(/\/N\s+(\d+)\b/.exec(obj.dict)?.[1]);
+	const first = Number(/\/First\s+(\d+)\b/.exec(obj.dict)?.[1]);
+	if (!Number.isFinite(n) || !Number.isFinite(first)) throw new Error("pades: ObjStm /N veya /First yok");
+	const plain = inflateSync(Buffer.from(obj.stream)).toString("latin1");
+	const head = plain.slice(0, first).trim();
+	const body = plain.slice(first);
+	const nums = head.split(/\s+/).map((s) => Number(s));
+	if (nums.length !== n * 2) throw new Error("pades: ObjStm index parse hatası");
+	const out: Array<{ num: number; body: string }> = [];
+	for (let i = 0; i < nums.length; i += 2) {
+		const num = nums[i]!;
+		const start = nums[i + 1]!;
+		const end = i + 3 < nums.length ? nums[i + 3]! : body.length;
+		out.push({ num, body: body.slice(start, end).trim() });
+	}
 	return out;
 }
 
