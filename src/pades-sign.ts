@@ -20,6 +20,7 @@ import {
 	spliceSignature,
 	type PlaceholderOptions,
 } from "./pades-core.ts";
+import { addVisibleAppearance, type VisibleSignatureOptions } from "./pades-visible.ts";
 import type { Policy, Profile } from "./policy.ts";
 import type { SignerInput } from "./sign.ts";
 import type { CommitmentType } from "./signed-properties.ts";
@@ -38,6 +39,8 @@ export type PadesSignOptions = {
 	signingTime?: Date | null;
 	policy?: Profile | Policy;
 	commitmentType?: CommitmentType;
+	/** Görünür imza — sayfa, dikdörtgen, metin. EN 319 142-1 §5.3. */
+	visibleSignature?: VisibleSignatureOptions;
 };
 
 export async function padesSign(opts: PadesSignOptions): Promise<Uint8Array> {
@@ -48,7 +51,10 @@ export async function padesSign(opts: PadesSignOptions): Promise<Uint8Array> {
 		...(opts.signerName !== undefined && { signerName: opts.signerName }),
 		...(opts.signatureSize !== undefined && { signatureSize: opts.signatureSize }),
 	};
-	const pdfWithPlaceholder = addSignaturePlaceholder(opts.pdf, placeholder);
+	let pdfWithPlaceholder = addSignaturePlaceholder(opts.pdf, placeholder);
+	if (opts.visibleSignature) {
+		pdfWithPlaceholder = addVisibleAppearance(pdfWithPlaceholder, opts.visibleSignature);
+	}
 	const byteRange = readByteRange(pdfWithPlaceholder);
 	const dataToSign = extractByteRangeBytes(pdfWithPlaceholder, byteRange);
 
