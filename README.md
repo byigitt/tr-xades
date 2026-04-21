@@ -8,6 +8,9 @@ XAdES:     BES / EPES / T / LT / LTA
            Enveloping + Enveloped (UBL-TR e-Fatura) + Detached + Counter-signature + Multi-sig
 CAdES:     BES / EPES / T / LT / LTA
            CMS/PKCS#7 ASN.1 DER, attached + detached; RFC 5652 / ETSI TS 101 733
+PAdES:     B-B / EPES / B-T / B-LT / B-LTA
+           PDF incremental update, /SubFilter /ETSI.CAdES.detached;
+           DSS + DocTimeStamp; ETSI EN 319 142-1 §5.3/5.4/5.5
 ASiC:      ASiC-S + ASiC-E zip konteyner; ETSI EN 319 162-1 §A.1
 Signer:    PFX (PKCS#12) veya pkcs8 + X.509 DER
 Algo:      RSA-PKCS1-v1_5 & ECDSA × SHA-256/384/512, EXC-C14N / C14N 1.0
@@ -233,6 +236,58 @@ Layout (EN 319 162-1 §A.1):
 - `mimetype` — FIRST entry, STORED, `application/vnd.etsi.asic-s+zip` veya `asic-e+zip`
 - Kök: veri dosyaları (İ-S tek, E çok)
 - `META-INF/signatures.xml` (XAdES) veya `signature.p7s` (CAdES). E için `NNN` indeks.
+
+### PAdES — PDF e-imza (ETSI EN 319 142-1)
+
+PDF'e incremental update ile imza dictionary, AcroForm ve CMS signature
+eklenir. Orijinal bayt bayt korunur (PAdES gereği). CAdES CMS çekirdeği
+reuse edilir — detached sig + ByteRange bytes üzerinde messageDigest.
+
+```ts
+import { padesSign } from "tr-esign/pades-sign";
+import { padesVerify } from "tr-esign/pades-verify";
+import { padesUpgrade } from "tr-esign/pades-upgrade";
+
+const pdf = readFileSync("./fatura.pdf");
+const pfx = readFileSync("./mali-muhur.pfx");
+
+// B-B / EPES (policy verildiğinde EPES)
+const signed = await padesSign({
+  pdf: new Uint8Array(pdf),
+  signer: { pfx: new Uint8Array(pfx), password: process.env.PFX_PASS! },
+  reason: "E-Fatura onayı",
+  signerName: "Barış Y.",
+  location: "Ankara",
+  policy: "P3",                         // TR profili → EPES
+  commitmentType: "proof-of-origin",
+  signatureSize: 16384,                 // /Contents placeholder (default 16KB)
+});
+
+// Seviye yükseltme — B-T / B-LT / B-LTA zincirlenebilir
+const bt  = await padesUpgrade({ pdf: signed, to: "T", tsa: { url: "http://tzd.kamusm.gov.tr" } });
+const blt = await padesUpgrade({ pdf: bt,     to: "LT", chain: [leafDer, intDer, rootDer], ocsps, crls });
+const lta = await padesUpgrade({ pdf: blt,    to: "LTA", tsa: { url: "http://tzd.kamusm.gov.tr" } });
+
+// Doğrulama
+const r = await padesVerify(lta);
+// r.valid → boolean, r.level → 'BES'|'EPES'|'T'|'LT'|'LTA', r.signer.subject, ...
+```
+
+| Seviye | Nasıl elde edilir | PDF-level yapı |
+|---|---|---|
+| **B-B**  | `padesSign({ ... })`                   | /Sig dict, /Contents=CMS, /ByteRange |
+| **EPES** | `padesSign({ policy: "P3" })`          | + signaturePolicyId CMS signedAttr  |
+| **B-T**  | `padesUpgrade({ to:"T", tsa })`        | + CMS signatureTimeStamp unsignedAttr |
+| **B-LT** | `padesUpgrade({ to:"LT", chain, … })`   | + /DSS /Certs /CRLs /OCSPs streams    |
+| **B-LTA**| `padesUpgrade({ to:"LTA", tsa })`      | + ikinci /Sig /SubFilter ETSI.RFC3161 |
+
+**Layout (EN 319 142-1 §5.3):**
+- /Filter /Adobe.PPKLite, /SubFilter /ETSI.CAdES.detached
+- /ByteRange [0 b c d] — hash ByteRange dilimleri (/Contents hariç)
+- /Contents <HEX> — hex-encoded CMS SignedData (detached, eContent yok)
+- /Type /Sig + AcroForm.Fields + Widget annotation
+- LT: /DSS dict (PDF Catalog'da) cert/CRL/OCSP streams
+- LTA: ayrı /Sig dict /SubFilter /ETSI.RFC3161, /Contents = TSToken
 
 ### Yardımcı modüller
 
