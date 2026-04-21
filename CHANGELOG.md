@@ -2,6 +2,101 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [0.6.0] — MA3 feature parity (PKCS#11 + MSS + visible + counter + manifest + CLI)
+
+Bu sürüm MA3 2.3.11.8'de olup tr-esign'da eksik olan özelliklerin büyük
+çoğunluğunu kapatır: akıllı kart, mobil imza, görünen PAdES, CAdES
+counter-sig, ASiC manifest, Kamu SM trust snapshot, CLI.
+
+### Eklendi
+
+- **PKCS#11 akıllı kart** — `src/pkcs11.ts` (graphene-pk11 + pkcs11js native).
+  `openPkcs11({modulePath, pin})` → session; `findSigner({label?, subject?})`
+  cert+private key handle + mechanism; `pkcs11Sign()` raw imza. `SignerInput`
+  union'ına `{pkcs11, label?, subject?}` variant eklendi; XAdES + CAdES +
+  PAdES `resolveSigner` dual path (webcrypto vs PKCS#11 manuel signedAttrs).
+  Subpath: `tr-esign/pkcs11`.
+
+- **Mobil İmza (MSS)** — `src/mss.ts`. ETSI TS 102 204 v1.1.2 hand-rolled
+  SOAP (dep YOK, @xmldom ile parse). `mssSign(opts)` synch imzalama;
+  `mssStatus` + `mssPoll(intervalMs, timeoutMs)` async mod polling.
+  Fetch override (test mock). Subpath: `tr-esign/mss`.
+
+- **PAdES görünen imza** — `src/pades-visible.ts`. ISO 32000-1 widget
+  annotation /AP /N Form XObject content stream (PDF operator hand-rolled:
+  q/Q, BT/ET, Tf, Tj, re/S). `padesSign({visibleSignature:{page, rect, text,
+  fontSize}})` opsiyonu. Incremental update olarak eklenir, ByteRange
+  etkilenmez.
+
+- **CAdES counter-signature** — `src/cades-counter-sign.ts`. RFC 5652
+  §11.4 id-countersignature (1.2.840.113549.1.9.16.2.6) + RFC 5126 §4.
+  `cadesCounterSign({cms, signer})`: outer.signature byte'larının hash'i +
+  messageDigest + signingCertV2 (contentType YOK); inner SignerInfo outer'ın
+  unsignedAttrs'ına eklenir. `cadesVerify` `counterSignatures[]` raporu verir.
+  Subpath: `tr-esign/cades-counter-sign`.
+
+- **ASiC-E XAdES manifest auto-gen** — `src/asic.ts`. ETSI EN 319 162-1
+  §A.4 `buildAsicManifest({sigReference, dataFiles})` SHA-256 per file +
+  MIME inference (pdf/xml/json/jpeg/png/txt/html...). `createAsicAsync()`
+  manifest:"auto" literal'i destekler.
+
+- **CAdES signer-location + signer-attributes** — `cades-attributes.ts`:
+  `buildSignerLocationAttr({city, country, postal})` (RFC 5126 §5.10.1) +
+  `buildSignerAttrAttr(claimed: string[])` (§5.10.3, id-at-title 2.5.4.12
+  altında). `cadesSign` opts'a `productionPlace` + `signerRole` eklendi.
+
+- **Kamu SM root anchor snapshot** — `reference/fetch-kamusm-roots.sh`
+  (~60 LOC python parser): depo.kamusm.gov.tr XML → 29 root PEM bundle →
+  `src/kamusm-roots-snapshot.ts` auto-generate. `chain.ts` → yeni
+  `loadKamuSmRootsOffline()` (dynamic import, fetch gerekmez). `loadKamuSmRoots`
+  runtime fetch regex'i güncel XML şemasına (mValue/mSubjectName) uyarlandı.
+
+- **CLI** — `src/cli.ts` + `bin/tr-esign` (~170 LOC, dep YOK minimal argv).
+  `tr-esign <format> <action>` matrisi: xades|cades|pades × sign|verify|upgrade.
+  Ortak bayraklar: --pfx/--password (env TR_ESIGN_PFX_PASS), --in, --out,
+  --policy, --tsa, --to. Format-specific: --placement, --detached,
+  --content, --reason, --signer-name. Verify JSON stdout + exit 0/1.
+  `package.json` bin alanı + files:[bin].
+
+### Değişti
+
+- `resolveSigner` dönüş tipi `{certificate, sigAlg, sign, privateKey?}` —
+  `sign(data)` birleşik arayuz. PKCS#11'de `privateKey` yok; cadesSign dual
+  path (webcrypto pkijs.SignedData.sign veya manuel SET OF SignedAttrs DER).
+- `SIG_ALG_OID` tablosu eklendi (`cades-constants.ts`): RSA/ECDSA × SHA-256/
+  384/512 PKCS#1/X9.62 OID'leri — manuel CAdES imza yolu için.
+- `cades-verify` `counterSignatures[]` raporu verir (XAdES ile ortak tip).
+- `pades-core.ts` `readByteRange` + `writeByteRange` son (en yeni)
+  `/ByteRange` placeholder'ı seçiyor — DocTimeStamp / çoklu imza güvenli.
+
+### Test altyapısı
+
+- `test/pkcs11.test.ts` — 3 opt-in (XAdES/CAdES/PAdES × softhsm2) test,
+  ENV TR_ESIGN_PKCS11_MODULE/PIN/LABEL.
+- `test/mss.test.ts` — 5 mock-fetch test (envelope + parse + fault + poll +
+  timeout).
+- `test/pades-visible.test.ts` — 3 test (appearance stream + escape + end-to-end).
+- `test/cades-counter-sign.test.ts` — 4 test (attribute yapısı + verify +
+  multi-counter + reddi).
+- `test/asic.test.ts` — +3 test (buildAsicManifest + createAsicAsync).
+- `test/cades-sign.test.ts` — +1 test (signer-location + signer-attr).
+- **79/79 offline test** yeşil; softhsm+live TSA ile 82/82.
+
+### Dep
+
+- `graphene-pk11` 2.3.6 + `pkcs11js` 2.1.6 (native; `package.json pnpm.
+  onlyBuiltDependencies`).
+- MSS + visible sig dependency YOK (hand-rolled).
+
+### Bilinen sınırlamalar
+
+- PKCS#11 native build için CMake/python gerekir (Windows dışı platformlarda
+  boğu tekliği). `pnpm approve-builds` + `npx node-gyp rebuild`.
+- Mobil İmza canlı operator testi yok (kimlik gerekli); mock SOAP ile
+  kısmı garanti. Türkcell/Vodafone signatureProfile farklılıkları
+  user tarafında override edilir.
+- CAdES LTA ATSv3 hala yok (v2 yeterli).
+
 ## [0.5.0] — PAdES + repo rename `tr-xades` → `tr-esign`
 
 Dördüncü imza formatı: PAdES (PDF e-imza). Repo ve paket adı XAdES + CAdES
