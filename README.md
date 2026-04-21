@@ -1,7 +1,15 @@
 # tr-esign
 
-Türkiye profili **XAdES** elektronik imza kütüphanesi. Node 20+, TypeScript.
+Türkiye için **XAdES + CAdES + PAdES + ASiC** elektronik imza kütüphanesi.
+Tek paket, tek tip `VerifyResult`, paylasılan CMS çekirdeği. Node 20+, TypeScript.
 Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağımlılıklar.
+
+| Format | Ne zaman? | API |
+|---|---|---|
+| **XAdES** | XML/UBL-TR (e-Fatura, e-İrşaliye, e-Bilet)                    | `tr-esign/sign` + `verify` + `upgrade` |
+| **CAdES** | İkili veri, e-reçete, detached özet imza (CMS/PKCS#7 ASN.1) | `tr-esign/cades-sign` + `cades-verify` + `cades-upgrade` |
+| **PAdES** | PDF doküman imzası (fatura PDF arşivi, resmi yazı)       | `tr-esign/pades-sign` + `pades-verify` + `pades-upgrade` |
+| **ASiC** | İmza + veri tek zip (ASiC-S/-E)                           | `tr-esign/asic` |
 
 ```
 XAdES:     BES / EPES / T / LT / LTA
@@ -25,48 +33,76 @@ Interop:   MA3 2.3.11.8 fixtures (verify) + MA3 verifier accepts ubl-ma3-compat
 pnpm add tr-esign
 ```
 
-## Hızlı bakış
+## Hızlı bakış — her format bir örnekte
 
-### İmzala
+Tüm örneklerde ortak: PFX (PKCS#12) yükle, hedef formatın `sign()` /
+`upgrade()` / `verify()` üçlüsünü çağır. `verify()` her formatta aynı
+`VerifyResult` tipini döner.
 
 ```ts
 import { readFileSync } from "node:fs";
-import { sign } from "tr-esign/sign";
-
 const pfx = new Uint8Array(readFileSync("./mali-muhur.pfx"));
-const invoice = readFileSync("./invoice.xml", "utf8");
+const signer = { pfx, password: process.env.PFX_PASS! };
+```
+
+### XAdES — UBL-TR / e-Fatura
+
+```ts
+import { sign } from "tr-esign/sign";
+import { verify } from "tr-esign/verify";
+import { upgrade } from "tr-esign/upgrade";
 
 const signed = await sign({
-  input: { xml: invoice, placement: "ubl-extension" },
-  signer: { pfx, password: process.env.PFX_PASS! },
-  policy: "P3",                         // UBL-TR / e-Fatura TR profili → EPES
+  input: { xml: readFileSync("./invoice.xml", "utf8"), placement: "ubl-extension" },
+  signer,
+  policy: "P3",                         // TR profili → EPES
   productionPlace: { city: "İstanbul", country: "TR" },
   commitmentType: "proof-of-origin",
 });
+const r = await verify(signed);         // { valid, level, signer, … }
+const t = await upgrade({ xml: signed, to: "T", tsa: { url: "http://tzd.kamusm.gov.tr" } });
 ```
 
-### Doğrula
+### CAdES — CMS/PKCS#7 ikili imza
 
 ```ts
-import { verify } from "tr-esign/verify";
+import { cadesSign } from "tr-esign/cades-sign";
+import { cadesVerify } from "tr-esign/cades-verify";
 
-const r = await verify(signed);
-if (!r.valid) throw new Error(r.reason);
-
-console.log(r.level);           // "EPES"
-console.log(r.signer.subject);  // "CN=Örnek Satıcı A.Ş.,…"
-console.log(r.signedAt);        // Date | undefined
+const data = readFileSync("./recete.bin");
+const cms = await cadesSign({ data, signer, policy: "P3", contentIncluded: false });
+const r = await cadesVerify(cms, { detachedContent: data });
 ```
 
-### Seviye yükselt
+### PAdES — PDF e-imza
 
 ```ts
-import { upgrade } from "tr-esign/upgrade";
+import { padesSign } from "tr-esign/pades-sign";
+import { padesVerify } from "tr-esign/pades-verify";
+import { padesUpgrade } from "tr-esign/pades-upgrade";
 
-const t   = await upgrade({ xml: signed, to: "T",  tsa: { url: "http://tzd.kamusm.gov.tr" } });
-const lt  = await upgrade({ xml: t,      to: "LT", chain: [leafDer, intermediateDer, rootDer] });
-const lta = await upgrade({ xml: lt,     to: "LTA" });
+const pdf = new Uint8Array(readFileSync("./fatura.pdf"));
+const signed = await padesSign({ pdf, signer, reason: "Onay", policy: "P3" });
+const lta = await padesUpgrade({ pdf: signed, to: "LTA", tsa: { url: "http://tzd.kamusm.gov.tr" } });
+const r = await padesVerify(lta);
 ```
+
+### ASiC — imza + veri tek zip
+
+```ts
+import { createAsic, readAsic } from "tr-esign/asic";
+
+const data = readFileSync("./fatura.xml");
+const sig  = await sign({ input: { xml: data.toString("utf8"), placement: "ubl-extension" }, signer });
+const asic = createAsic({
+  type: "asic-s",
+  data: { name: "fatura.xml", bytes: new Uint8Array(data) },
+  signature: { bytes: new TextEncoder().encode(sig), format: "xades" },
+});
+const { type, dataFiles, signatures } = readAsic(asic);
+```
+
+Her formatın detaylı API'si aşağıda.
 
 ## API
 
