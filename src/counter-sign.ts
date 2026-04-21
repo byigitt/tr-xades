@@ -8,7 +8,7 @@
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { canonicalize, type C14NAlg } from "./c14n.ts";
 import { NS, SIGNED_PROPS_TYPE } from "./constants.ts";
-import { sign as cryptoSign, type HashAlg, type SignatureAlg } from "./crypto.ts";
+import type { HashAlg, SignatureAlg } from "./crypto.ts";
 import { makeId } from "./ids.ts";
 import { buildReference, buildSignedInfo, digestReference } from "./references.ts";
 import { buildKeyInfo, resolveSigner, type SignerInput } from "./sign.ts";
@@ -101,7 +101,7 @@ export async function counterSign(opts: CounterSignOptions): Promise<string> {
 	// Şema sırası: SignedInfo, SignatureValue, KeyInfo, Object*.
 	sig.appendChild(si);
 
-	const sigBytes = await cryptoSign(resolved.sigAlg, resolved.privateKey, canonicalize(si, c14nAlg));
+	const sigBytes = await resolved.sign(canonicalize(si, c14nAlg));
 	const sv = doc.createElementNS(NS.ds, "ds:SignatureValue");
 	sv.setAttribute("Id", makeId("Signature-Value"));
 	sv.appendChild(doc.createTextNode(Buffer.from(sigBytes).toString("base64")));

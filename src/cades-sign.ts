@@ -14,7 +14,7 @@ import {
 	buildSigningCertificateV2Attr,
 	buildSigningTimeAttr,
 } from "./cades-attributes.ts";
-import { CONTENT_TYPE, HASH_OID } from "./cades-constants.ts";
+import { CONTENT_TYPE, HASH_OID, SIG_ALG_OID } from "./cades-constants.ts";
 import { digest, type HashAlg, type SignatureAlg } from "./crypto.ts";
 import { trPolicy, type Policy, type Profile } from "./policy.ts";
 import { resolveSigner, type SignerInput } from "./sign.ts";
@@ -78,11 +78,22 @@ export async function cadesSign(opts: CadesSignOptions): Promise<Uint8Array> {
 		signerInfos: [signerInfo],
 	});
 
-	// pkijs.SignedData.sign() signedAttrs'in DER'ini digest + imzalar; signerInfo'nun
-	// signatureAlgorithm + signature alanlarını doldurur. Detached modda content
-	// doğrudan geçilmez (messageDigest attribute elle eklendiği için pkijs re-compute
-	// etmeye gerek duymaz).
-	await signedData.sign(resolved.privateKey, 0, digestAlg);
+	// İki imzalama yolu: WebCrypto (pfx/pkcs8) pkijs.SignedData.sign kullanır;
+	// PKCS#11 için manuel — signedAttrs SET DER'i elle üretip resolved.sign() ile
+	// imzalayıp SignerInfo.signature + signatureAlgorithm'ı elle doldururuz.
+	if (resolved.privateKey) {
+		await signedData.sign(resolved.privateKey, 0, digestAlg);
+	} else {
+		// SET OF Attribute (RFC 5652 §5.4) — imzalanırken IMPLICIT [0] yerine açık SET.
+		const attrsSet = new asn1js.Set({
+			value: signedAttrs.map((a) => a.toSchema()),
+		});
+		const sigBytes = await resolved.sign(new Uint8Array(attrsSet.toBER()));
+		signerInfo.signature = new asn1js.OctetString({ valueHex: toAB(sigBytes) });
+		signerInfo.signatureAlgorithm = new pkijs.AlgorithmIdentifier({
+			algorithmId: SIG_ALG_OID[resolved.sigAlg],
+		});
+	}
 
 	const contentInfo = new pkijs.ContentInfo({
 		contentType: CONTENT_TYPE.signedData,

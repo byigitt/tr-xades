@@ -52,6 +52,18 @@ export const HASH_OID = {
 	"SHA-512": "2.16.840.1.101.3.4.2.3",
 } as const;
 
+// PKCS#1 / X9.62 signature algorithm OIDs (SignerInfo.signatureAlgorithm).
+// Manuel imza yolunda (PKCS#11) kullanılır; pkijs default webcrypto yolunda
+// otomatik ayarlanır.
+export const SIG_ALG_OID = {
+	"RSA-SHA256": "1.2.840.113549.1.1.11", // sha256WithRSAEncryption
+	"RSA-SHA384": "1.2.840.113549.1.1.12",
+	"RSA-SHA512": "1.2.840.113549.1.1.13",
+	"ECDSA-SHA256": "1.2.840.10045.4.3.2",
+	"ECDSA-SHA384": "1.2.840.10045.4.3.3",
+	"ECDSA-SHA512": "1.2.840.10045.4.3.4",
+} as const;
+
 // --- ETSI CommitmentType OIDs (RFC 5126 §5.11.1) ---
 // XAdES karşılıklarıyla aynı OID arc; tek tabloda tutma duplicate olurdu,
 // ama CAdES tarafında ayrı import akışı için burada da referans:

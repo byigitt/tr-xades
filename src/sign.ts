@@ -17,6 +17,7 @@ import {
 } from "./crypto.ts";
 import { makeId } from "./ids.ts";
 import { loadPfx } from "./pfx.ts";
+import type { Pkcs11Handle } from "./pkcs11.ts";
 import { trPolicy, type Policy, type Profile } from "./policy.ts";
 import { buildReference, buildSignedInfo, digestReference, type Transform } from "./references.ts";
 import { buildSignedProperties, type CommitmentType } from "./signed-properties.ts";
@@ -114,11 +115,7 @@ export async function sign(opts: SignOptions): Promise<string> {
 	stage.signatureEl.insertBefore(si, stage.signatureEl.firstChild);
 
 	// Sign canonicalized SignedInfo.
-	const signatureBytes = await cryptoSign(
-		resolved.sigAlg,
-		resolved.privateKey,
-		canonicalize(si as unknown as Node, c14nAlg),
-	);
+	const signatureBytes = await resolved.sign(canonicalize(si as unknown as Node, c14nAlg));
 	const sv = stage.doc.createElementNS(NS.ds, "ds:SignatureValue");
 	sv.setAttribute("Id", makeId("Signature-Value"));
 	sv.appendChild(stage.doc.createTextNode(Buffer.from(signatureBytes).toString("base64")));
@@ -257,34 +254,68 @@ export function buildKeyInfo(doc: Document, certDer: Uint8Array): Element {
 
 export type SignerInput =
 	| { pfx: Uint8Array; password: string }
-	| { pkcs8: Uint8Array; certificate: Uint8Array };
+	| { pkcs8: Uint8Array; certificate: Uint8Array }
+	| { pkcs11: Pkcs11Handle; label?: string; subject?: RegExp };
+
+/**
+ * Resolved signer:
+ *   - certificate: X.509 DER
+ *   - sigAlg: 'RSA-SHA256' gibi
+ *   - sign: hem WebCrypto hem PKCS#11 için tek interface
+ *   - privateKey: pkijs uyumlu yol (pfx/pkcs8). PKCS#11'de undefined;
+ *                 çağrıcı manuel signedAttrs DER yolunu kullanmalı.
+ */
+export type ResolvedSigner = {
+	certificate: Uint8Array;
+	sigAlg: SignatureAlg;
+	sign: (data: Uint8Array) => Promise<Uint8Array>;
+	privateKey?: CryptoKey;
+};
 
 export async function resolveSigner(input: {
 	signer: SignerInput;
 	digestAlgorithm?: HashAlg;
 	signatureAlgorithm?: SignatureAlg;
-}): Promise<{
-	certificate: Uint8Array;
-	privateKey: CryptoKey;
-	sigAlg: SignatureAlg;
-}> {
+}): Promise<ResolvedSigner> {
 	const hash = (input.digestAlgorithm ?? "SHA-256").replace("-", ""); // "SHA256"
 	if ("pfx" in input.signer) {
 		const b = await loadPfx(input.signer.pfx, input.signer.password);
 		const prefix = b.privateKey.algorithm === "EC" ? "ECDSA" : "RSA";
 		const sigAlg = (input.signatureAlgorithm ?? `${prefix}-${hash}`) as SignatureAlg;
+		const privateKey = await importPrivateKey(b.privateKey.pkcs8, sigAlg);
 		return {
 			certificate: b.certificate,
-			privateKey: await importPrivateKey(b.privateKey.pkcs8, sigAlg),
+			privateKey,
 			sigAlg,
+			sign: (data) => cryptoSign(sigAlg, privateKey, data),
 		};
 	}
-	if (!input.signatureAlgorithm) {
-		throw new Error("signatureAlgorithm doğrudan pkcs8 verildiğinde zorunludur");
+	if ("pkcs8" in input.signer) {
+		if (!input.signatureAlgorithm) {
+			throw new Error("signatureAlgorithm doğrudan pkcs8 verildiğinde zorunludur");
+		}
+		const sigAlg = input.signatureAlgorithm;
+		const privateKey = await importPrivateKey(input.signer.pkcs8, sigAlg);
+		return {
+			certificate: input.signer.certificate,
+			privateKey,
+			sigAlg,
+			sign: (data) => cryptoSign(sigAlg, privateKey, data),
+		};
 	}
+	// PKCS#11
+	const { findSigner, pkcs11Sign } = await import("./pkcs11.ts");
+	const found = findSigner(input.signer.pkcs11.session, {
+		...(input.signer.label !== undefined && { label: input.signer.label }),
+		...(input.signer.subject !== undefined && { subject: input.signer.subject }),
+	});
+	// SHA256_RSA_PKCS = 0x40 (64) → RSA. ECDSA_SHA256 = 0x1044 (4164) → ECDSA.
+	const sigAlg: SignatureAlg = input.signatureAlgorithm
+		?? (found.mechanism === 0x1044 ? "ECDSA-SHA256" : "RSA-SHA256");
+	const session = input.signer.pkcs11.session;
 	return {
-		certificate: input.signer.certificate,
-		privateKey: await importPrivateKey(input.signer.pkcs8, input.signatureAlgorithm),
-		sigAlg: input.signatureAlgorithm,
+		certificate: found.certificate,
+		sigAlg,
+		sign: async (data) => pkcs11Sign(session, found, data),
 	};
 }
