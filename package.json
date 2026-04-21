@@ -1,6 +1,6 @@
 {
   "name": "tr-esign",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Türkiye profili XAdES + CAdES + ASiC + PAdES imza kütüphanesi — clean-room; ETSI EN 319 132 / TS 101 733 / EN 319 162 / EN 319 142 uyumlu",
   "keywords": [
     "xades",
@@ -61,6 +61,22 @@
     "./pades-upgrade": {
       "types": "./dist/pades-upgrade.d.ts",
       "import": "./dist/pades-upgrade.js"
+    },
+    "./pades-visible": {
+      "types": "./dist/pades-visible.d.ts",
+      "import": "./dist/pades-visible.js"
+    },
+    "./cades-counter-sign": {
+      "types": "./dist/cades-counter-sign.d.ts",
+      "import": "./dist/cades-counter-sign.js"
+    },
+    "./pkcs11": {
+      "types": "./dist/pkcs11.d.ts",
+      "import": "./dist/pkcs11.js"
+    },
+    "./mss": {
+      "types": "./dist/mss.d.ts",
+      "import": "./dist/mss.js"
     },
     "./pfx": {
       "types": "./dist/pfx.d.ts",
