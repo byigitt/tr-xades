@@ -72,3 +72,23 @@ test("cadesSign — detached mode (contentIncluded=false): eContent yok",
 		const types = (sd.signerInfos[0]!.signedAttrs?.attributes ?? []).map((a) => a.type);
 		assert.ok(!types.includes(SIGNED_ATTR.signingTime));
 	});
+
+test("cadesSign productionPlace + signerRole → signer-location + signer-attr signedAttrs",
+	{ skip: !hasPfx && "fixture yok" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const cms = await cadesSign({
+			data: new TextEncoder().encode("signer attrs test"),
+			signer: { pfx, password: "testpass" },
+			productionPlace: { city: "İstanbul", country: "TR", postal: ["Bulvar 100", "34100"] },
+			signerRole: { claimed: ["Mali Müşavir", "Partner"] },
+		});
+		const ab = new ArrayBuffer(cms.byteLength);
+		new Uint8Array(ab).set(cms);
+		const ci = new pkijs.ContentInfo({ schema: asn1js.fromBER(ab).result });
+		assert.equal(ci.contentType, CONTENT_TYPE.signedData);
+		const sd = new pkijs.SignedData({ schema: ci.content });
+		const types = new Set((sd.signerInfos[0]!.signedAttrs?.attributes ?? []).map((a) => a.type));
+		assert.ok(types.has(CADES_ATTR.signerLocation), "signerLocation OID eksik");
+		assert.ok(types.has(CADES_ATTR.signerAttr), "signerAttr OID eksik");
+	});

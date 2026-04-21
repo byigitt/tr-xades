@@ -86,6 +86,52 @@ export function buildCommitmentTypeIndicationAttr(type: CommitmentType): pkijs.A
 	return attr(CADES_ATTR.commitmentTypeIndication, cti);
 }
 
+// ETSI TS 101 733 §5.10.1 / RFC 5126 signer-location:
+//   SignerLocation ::= SEQUENCE {
+//     countryName   [0] DirectoryString OPTIONAL,
+//     localityName  [1] DirectoryString OPTIONAL,
+//     postalAddress [2] PostalAddress  OPTIONAL }
+//   PostalAddress ::= SEQUENCE SIZE (1..6) OF DirectoryString
+export function buildSignerLocationAttr(input: {
+	city?: string;
+	country?: string;
+	postal?: string[] | string;
+}): pkijs.Attribute {
+	const fields: asn1js.BaseBlock[] = [];
+	if (input.country !== undefined) {
+		fields.push(taggedExplicit(0, new asn1js.Utf8String({ value: input.country })));
+	}
+	if (input.city !== undefined) {
+		fields.push(taggedExplicit(1, new asn1js.Utf8String({ value: input.city })));
+	}
+	if (input.postal !== undefined) {
+		const lines = Array.isArray(input.postal) ? input.postal : [input.postal];
+		const pa = new asn1js.Sequence({
+			value: lines.map((l) => new asn1js.Utf8String({ value: l })),
+		});
+		fields.push(taggedExplicit(2, pa));
+	}
+	return attr(CADES_ATTR.signerLocation, new asn1js.Sequence({ value: fields }));
+}
+
+// ETSI TS 101 733 §5.10.3 / RFC 5126 signer-attributes v1:
+//   SignerAttribute ::= SEQUENCE OF CHOICE {
+//     claimedAttributes   [0] ClaimedAttributes,
+//     certifiedAttributes [1] CertifiedAttributes }
+//   ClaimedAttributes ::= SEQUENCE OF Attribute
+// Biz yalnız claimed (string[]) destekliyoruz; rol için X.520 "title"
+// (2.5.4.12) OID kullanılır (XAdES ClaimedRoles ile semantik paralel).
+export function buildSignerAttrAttr(claimed: string[]): pkijs.Attribute {
+	const title = "2.5.4.12"; // id-at-title
+	const attrs = claimed.map((role) => new pkijs.Attribute({
+		type: title,
+		values: [new asn1js.Utf8String({ value: role })],
+	}));
+	const claimedSeq = new asn1js.Sequence({ value: attrs.map((a) => a.toSchema()) });
+	const choice = taggedExplicit(0, claimedSeq);
+	return attr(CADES_ATTR.signerAttr, new asn1js.Sequence({ value: [choice] }));
+}
+
 // --- Unsigned attributes ---
 
 // ETSI TS 101 733 §6.1.1 signature-time-stamp: token = CMS ContentInfo (TSTInfo içinde)

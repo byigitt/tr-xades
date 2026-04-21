@@ -11,6 +11,8 @@ import {
 	buildContentTypeAttr,
 	buildMessageDigestAttr,
 	buildSignaturePolicyIdentifierAttr,
+	buildSignerAttrAttr,
+	buildSignerLocationAttr,
 	buildSigningCertificateV2Attr,
 	buildSigningTimeAttr,
 } from "./cades-attributes.ts";
@@ -29,6 +31,10 @@ export type CadesSignOptions = {
 	signingTime?: Date | null; // null → omit; default new Date()
 	policy?: Profile | Policy;
 	commitmentType?: CommitmentType;
+	/** ETSI §5.10.1 signer-location — ülke/şehir/posta. */
+	productionPlace?: { city?: string; country?: string; postal?: string[] | string };
+	/** ETSI §5.10.3 signer-attributes claimed roles (title/role metni). */
+	signerRole?: { claimed: string[] };
 };
 
 export async function cadesSign(opts: CadesSignOptions): Promise<Uint8Array> {
@@ -53,6 +59,12 @@ export async function cadesSign(opts: CadesSignOptions): Promise<Uint8Array> {
 	}
 	if (opts.commitmentType) {
 		signedAttrs.push(buildCommitmentTypeIndicationAttr(opts.commitmentType));
+	}
+	if (opts.productionPlace) {
+		signedAttrs.push(buildSignerLocationAttr(opts.productionPlace));
+	}
+	if (opts.signerRole?.claimed && opts.signerRole.claimed.length > 0) {
+		signedAttrs.push(buildSignerAttrAttr(opts.signerRole.claimed));
 	}
 
 	const signerInfo = new pkijs.SignerInfo({
