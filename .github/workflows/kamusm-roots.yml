@@ -1,0 +1,75 @@
+name: kamusm-roots refresh
+
+# Ayda bir Kamu SM Sertifika Deposu'nu yeniden çeker, snapshot değişmiş ise
+# otomatik PR açar. Workflow dispatch ile elle de tetiklenebilir.
+
+on:
+  schedule:
+    # her ayın 1'i UTC 05:00 (TR: 08:00)
+    - cron: "0 5 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup python (script için parse eder)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: pnpm kur
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: bağımlılıkları kur
+        run: pnpm install --frozen-lockfile=false
+
+      - name: kamusm snapshot üret
+        run: bash reference/fetch-kamusm-roots.sh
+
+      - name: gate — tsgo + oxlint + test
+        run: |
+          pnpm exec tsgo --noEmit
+          pnpm exec oxlint src test examples
+          pnpm test
+
+      - name: değişiklik var mı
+        id: diff
+        run: |
+          if git diff --quiet -- src/kamusm-roots-snapshot.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: otomatik PR aç
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(kamusm): root anchor snapshot refresh"
+          title: "chore(kamusm): root anchor snapshot refresh"
+          body: |
+            Kamu SM Sertifika Deposu'nda (http://depo.kamusm.gov.tr/) değişiklik
+            tespit edildi. `reference/fetch-kamusm-roots.sh` yeniden çalıştırıldı
+            ve `src/kamusm-roots-snapshot.ts` güncellendi.
+
+            Bu PR otomatik oluşturuldu. Merge etmeden önce diff'in yalnız
+            snapshot dosyasını etkilediğini doğrulayın.
+          branch: kamusm-roots-refresh
+          add-paths: |
+            src/kamusm-roots-snapshot.ts
+          delete-branch: true
