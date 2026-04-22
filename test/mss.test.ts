@@ -166,6 +166,21 @@ test("mssSignerCert — sertifika parse + envelope doğru", async () => {
 	assert.match(s.body, /<mss:MSISDN>905551234567<\/mss:MSISDN>/);
 });
 
+test("mssSignerCert — yalnız CertificateURI dönerse inline cert olmadan parse eder", async () => {
+	const fakeFetch: typeof fetch = async () =>
+		new Response(registrationResp("100", "OK", undefined, "https://mssp.test/cert/uri-only"), {
+			status: 200,
+			headers: { "Content-Type": "text/xml" },
+		});
+	const r = await mssSignerCert({
+		serviceUrl: "https://mssp.test/MSS_Registration",
+		apId: "tr-esign", apPwd: "secret", msisdn: "905551234567", fetch: fakeFetch,
+	});
+	assert.equal(r.statusCode, "100");
+	assert.equal(r.certificate, undefined);
+	assert.equal(r.certificateUri, "https://mssp.test/cert/uri-only");
+});
+
 test("mssSign — SOAP Fault reddi", async () => {
 	const fakeFetch: typeof fetch = async () => new Response(wrapResp(
 		`<soap:Fault xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
