@@ -9,6 +9,7 @@
 
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
+import { validateChain, type ChainResult } from "./chain.ts";
 import type { HashAlg } from "./crypto.ts";
 import { KAMUSM } from "./constants.ts";
 
@@ -26,6 +27,22 @@ export type TimestampOptions = {
 	tsaUrl?: string; // default: Kamu SM
 	policyOid?: string;
 	nonce?: Uint8Array; // 8 random bytes by default
+};
+
+export type VerifyTimestampOptions = {
+	roots: Uint8Array[];
+	intermediates?: Uint8Array[];
+	checkDate?: Date;
+	crls?: Uint8Array[];
+	ocspResponses?: Uint8Array[];
+	tsaUrl?: string;
+};
+
+export type VerifiedTimestamp = Timestamp & {
+	signerCertificate?: Uint8Array;
+	chain: ChainResult;
+	valid: boolean;
+	reason?: string;
 };
 
 export async function getTimestamp(o: TimestampOptions): Promise<Timestamp> {
@@ -68,25 +85,99 @@ export function parseResponse(bytes: Uint8Array, tsaUrl: string): Timestamp {
 	}
 	if (!resp.timeStampToken) throw new Error("TSA cevabı TimeStampToken içermiyor");
 
-	const tokenBytes = new Uint8Array(resp.timeStampToken.toSchema().toBER());
+	return parseToken(new Uint8Array(resp.timeStampToken.toSchema().toBER()), tsaUrl).timestamp;
+}
 
-	// TSTInfo = TimeStampToken içindeki CMS SignedData.encapContentInfo.eContent.
-	const sd = new pkijs.SignedData({ schema: resp.timeStampToken.content });
-	const eContent = sd.encapContentInfo.eContent;
+export async function verifyTimestamp(
+	token: Uint8Array,
+	opts: VerifyTimestampOptions,
+): Promise<VerifiedTimestamp> {
+	try {
+		const parsed = parseToken(token, opts.tsaUrl ?? KAMUSM.tsaUrl);
+		const signerCertificate = findSignerCertificate(parsed.signedData, parsed.signerInfo);
+		if (!signerCertificate) {
+			return {
+				...parsed.timestamp,
+				chain: { valid: false, reason: "TSA token signer certificate bulunamadı" },
+				valid: false,
+				reason: "TSA token signer certificate bulunamadı",
+			};
+		}
+		const signerDer = new Uint8Array(signerCertificate.toSchema().toBER());
+		const cmsIntermediates = (parsed.signedData.certificates ?? [])
+			.filter((c): c is pkijs.Certificate => c instanceof pkijs.Certificate)
+			.filter((c) => c !== signerCertificate)
+			.map((c) => new Uint8Array(c.toSchema().toBER()));
+		const chain = await validateChain({
+			leaf: signerDer,
+			intermediates: [...cmsIntermediates, ...(opts.intermediates ?? [])],
+			roots: opts.roots,
+			checkDate: opts.checkDate ?? parsed.timestamp.genTime,
+			...(opts.crls && { crls: opts.crls }),
+			...(opts.ocspResponses && { ocspResponses: opts.ocspResponses }),
+		});
+		return {
+			...parsed.timestamp,
+			signerCertificate: signerDer,
+			chain,
+			valid: chain.valid,
+			...(chain.valid ? {} : { reason: chain.reason }),
+		};
+	} catch (e) {
+		return {
+			token,
+			genTime: new Date(0),
+			messageImprint: { algorithm: "SHA-256", value: new Uint8Array() },
+			...(opts.tsaUrl ? { tsaUrl: opts.tsaUrl } : { tsaUrl: KAMUSM.tsaUrl }),
+			chain: { valid: false, reason: e instanceof Error ? e.message : String(e) },
+			valid: false,
+			reason: e instanceof Error ? e.message : String(e),
+		};
+	}
+}
+
+function parseToken(token: Uint8Array, tsaUrl: string): {
+	timestamp: Timestamp;
+	signedData: pkijs.SignedData;
+	signerInfo: pkijs.SignerInfo;
+} {
+	const asn = asn1js.fromBER(toAB(token));
+	if (asn.offset === -1) throw new Error("TimeStampToken: ASN.1 parse hatası");
+	const contentInfo = new pkijs.ContentInfo({ schema: asn.result });
+	if (contentInfo.contentType !== "1.2.840.113549.1.7.2") throw new Error("TimeStampToken: SignedData değil");
+	const signedData = new pkijs.SignedData({ schema: contentInfo.content });
+	if (signedData.signerInfos.length !== 1) {
+		throw new Error(`TimeStampToken: tek signerInfo bekleniyor, ${signedData.signerInfos.length} var`);
+	}
+	const eContent = signedData.encapContentInfo.eContent;
 	if (!eContent) throw new Error("TimeStampToken içinde TSTInfo yok");
 	const tstBytes = eContent.valueBlock.valueHexView;
 	const tst = new pkijs.TSTInfo({ schema: asn1js.fromBER(toAB(new Uint8Array(tstBytes))).result });
-
 	return {
-		token: tokenBytes,
-		genTime: tst.genTime,
-		messageImprint: {
-			algorithm: hashAlgFromOid(tst.messageImprint.hashAlgorithm.algorithmId),
-			value: new Uint8Array(tst.messageImprint.hashedMessage.valueBlock.valueHexView),
+		timestamp: {
+			token,
+			genTime: tst.genTime,
+			messageImprint: {
+				algorithm: hashAlgFromOid(tst.messageImprint.hashAlgorithm.algorithmId),
+				value: new Uint8Array(tst.messageImprint.hashedMessage.valueBlock.valueHexView),
+			},
+			...(tst.policy ? { policyOid: tst.policy } : {}),
+			tsaUrl,
 		},
-		...(tst.policy ? { policyOid: tst.policy } : {}),
-		tsaUrl,
+		signedData,
+		signerInfo: signedData.signerInfos[0]!,
 	};
+}
+
+function findSignerCertificate(sd: pkijs.SignedData, si: pkijs.SignerInfo): pkijs.Certificate | undefined {
+	const sid = si.sid;
+	if (!(sid instanceof pkijs.IssuerAndSerialNumber)) return undefined;
+	const targetSerial = sid.serialNumber.valueBlock.toString();
+	for (const c of sd.certificates ?? []) {
+		if (!(c instanceof pkijs.Certificate)) continue;
+		if (c.serialNumber.valueBlock.toString() === targetSerial) return c;
+	}
+	return undefined;
 }
 
 function hashOid(alg: HashAlg): string {
