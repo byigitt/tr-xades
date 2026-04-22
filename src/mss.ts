@@ -90,6 +90,23 @@ export type MssProfileQueryResult = {
 	profiles: string[];
 };
 
+export type MssSignerCertOptions = {
+	serviceUrl: string;
+	apId: string;
+	apPwd: string;
+	msisdn: string;
+	apTransId?: string;
+	fetch?: typeof fetch;
+};
+
+export type MssSignerCertResult = {
+	msspTransId: string;
+	statusCode?: string;
+	statusMessage?: string;
+	certificate?: Uint8Array;
+	certificateUri?: string;
+};
+
 /**
  * ETSI §5.2 MSS_StatusReq — async mod'daki bir imzanın durumunu sorgular.
  * Polling manuel yapılır; mssPoll() helper'ı bekleyerek imza gelene kadar tekrarlar.
@@ -133,6 +150,20 @@ export async function mssProfileQuery(opts: MssProfileQueryOptions): Promise<Mss
 	});
 	const respXml = await postSoap(opts.serviceUrl, envelope, "MSS_ProfileQuery", opts.fetch);
 	return parseProfileQueryResp(respXml);
+}
+
+export async function mssSignerCert(opts: MssSignerCertOptions): Promise<MssSignerCertResult> {
+	const apTransId = opts.apTransId ?? uuid();
+	const instant = new Date().toISOString();
+	const envelope = buildRegistrationReq({
+		apId: opts.apId,
+		apPwd: opts.apPwd,
+		apTransId,
+		instant,
+		msisdn: opts.msisdn,
+	});
+	const respXml = await postSoap(opts.serviceUrl, envelope, "MSS_Registration", opts.fetch);
+	return parseRegistrationResp(respXml);
 }
 
 export async function mssSign(opts: MssSignOptions): Promise<MssSignResult> {
@@ -190,6 +221,23 @@ function buildProfileQueryReq(a: {
 </soap:Envelope>`;
 }
 
+function buildRegistrationReq(a: {
+	apId: string; apPwd: string; apTransId: string; instant: string; msisdn: string;
+}): string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="${NS.soap}" xmlns:mss="${NS.mss}">
+  <soap:Body>
+    <mss:MSS_Registration>
+      <mss:MSS_RegistrationReq MajorVersion="1" MinorVersion="1">
+        <mss:AP_Info AP_ID="${xmlEscape(a.apId)}" AP_TransID="${xmlEscape(a.apTransId)}" AP_PWD="${xmlEscape(a.apPwd)}" Instant="${a.instant}"/>
+        <mss:MSSP_Info><mss:MSSP_ID><mss:URI>${NS.mss}</mss:URI></mss:MSSP_ID></mss:MSSP_Info>
+        <mss:MobileUser><mss:MSISDN>${xmlEscape(a.msisdn)}</mss:MSISDN></mss:MobileUser>
+      </mss:MSS_RegistrationReq>
+    </mss:MSS_Registration>
+  </soap:Body>
+</soap:Envelope>`;
+}
+
 function parseStatusResp(xml: string): MssStatusResult {
 	const doc = parseSoap(xml);
 	const statusCode = firstAttr(doc, NS.mss, "StatusCode", "Value") ?? "";
@@ -218,6 +266,19 @@ function parseProfileQueryResp(xml: string): MssProfileQueryResult {
 		...(firstAttr(doc, NS.mss, "StatusCode", "Value") && { statusCode: firstAttr(doc, NS.mss, "StatusCode", "Value")! }),
 		...(firstText(doc, NS.mss, "StatusMessage") && { statusMessage: firstText(doc, NS.mss, "StatusMessage")! }),
 		profiles,
+	};
+}
+
+function parseRegistrationResp(xml: string): MssSignerCertResult {
+	const doc = parseSoap(xml);
+	const certB64 = firstText(doc, NS.mss, "X509Certificate") ?? "";
+	const certUri = firstText(doc, NS.mss, "CertificateURI") ?? undefined;
+	return {
+		msspTransId: firstText(doc, NS.mss, "MSSP_TransID") ?? "",
+		...(firstAttr(doc, NS.mss, "StatusCode", "Value") && { statusCode: firstAttr(doc, NS.mss, "StatusCode", "Value")! }),
+		...(firstText(doc, NS.mss, "StatusMessage") && { statusMessage: firstText(doc, NS.mss, "StatusMessage")! }),
+		...(certB64.trim() && { certificate: new Uint8Array(Buffer.from(certB64.trim(), "base64")) }),
+		...(certUri && { certificateUri: certUri }),
 	};
 }
 
