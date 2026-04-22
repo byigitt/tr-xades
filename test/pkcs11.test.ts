@@ -16,6 +16,8 @@
 //   TR_ESIGN_PKCS11_MODULE=/opt/homebrew/lib/softhsm/libsofthsm2.so \
 //       TR_ESIGN_PKCS11_PIN=1234 pnpm test
 
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument } from "pdf-lib";
@@ -32,6 +34,36 @@ const PIN = process.env.TR_ESIGN_PKCS11_PIN ?? "1234";
 const LABEL = process.env.TR_ESIGN_PKCS11_LABEL ?? "trEsignSigner";
 const enabled = Boolean(MODULE);
 const skipMsg = "needs TR_ESIGN_PKCS11_MODULE=/path/to/lib.so (+ PIN + LABEL)";
+const PFX_FIXTURE = join(import.meta.dirname, "..", "reference", "fixtures", "test.p12");
+const SIGN_PATH = join(import.meta.dirname, "..", "src", "sign.ts");
+
+test("pkcs11 optional — pfx sign yolu graphene-pk11 çözmeden çalışır", async () => {
+	const script = `
+		import Module from "node:module";
+		import { readFileSync } from "node:fs";
+		const originalLoad = Module._load;
+		Module._load = function(request, parent, isMain) {
+			if (request === "graphene-pk11" || request === "pkcs11js") {
+				throw new Error("blocked optional pkcs11 dependency: " + request);
+			}
+			return originalLoad.call(this, request, parent, isMain);
+		};
+		const { sign } = await import(${JSON.stringify(SIGN_PATH)});
+		const pfx = new Uint8Array(readFileSync(${JSON.stringify(PFX_FIXTURE)}));
+		const out = await sign({
+			input: { xml: "<root><data>optional pkcs11 off</data></root>", placement: "root-append" },
+			signer: { pfx, password: "testpass" },
+		});
+		if (!out.includes("<ds:Signature")) throw new Error("signature missing");
+		process.stdout.write("OK");
+	`;
+	const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+		cwd: join(import.meta.dirname, ".."),
+		encoding: "utf8",
+	});
+	assert.equal(r.status, 0, r.stderr || r.stdout);
+	assert.match(r.stdout, /OK/);
+});
 
 test("pkcs11 — XAdES round-trip via akıllı kart",
 	{ skip: !enabled && skipMsg },
